@@ -3,7 +3,9 @@ package com.invenium.thebig6ix
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.navigation.NavController
 import androidx.navigation.findNavController
+import androidx.navigation.ui.setupWithNavController
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.invenium.thebig6ix.databinding.ActivityMainBinding
@@ -11,39 +13,30 @@ import com.invenium.thebig6ix.databinding.ActivityMainBinding
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private var isAuthenticated: Boolean = false // Track authentication status
+    private lateinit var navController: NavController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize Firebase
-        FirebaseApp.initializeApp(this)
-
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val navController = findNavController(R.id.nav_host_fragment_activity_main)
+        navController = findNavController(R.id.nav_host_fragment_activity_main)
 
-        // Remove ActionBar back button
-        supportActionBar?.setDisplayHomeAsUpEnabled(false)
+        // Setup bottom navigation with NavController
+        binding.navView.setupWithNavController(navController)
 
-        // Check if user is already authenticated
-        checkAuthentication()
-    }
-
-    // Check if user is authenticated
-    private fun checkAuthentication() {
-        val currentUser = FirebaseAuth.getInstance().currentUser
-        isAuthenticated = currentUser != null
-        if (!isAuthenticated) {
-            // If not authenticated, navigate to the login fragment
-            findNavController(R.id.nav_host_fragment_activity_main).navigate(R.id.navigation_login)
+        // Listen for navigation changes to show/hide bottom navigation
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            if (destination.id == R.id.navigation_login || destination.id == R.id.createAccountFragment || destination.id == R.id.forgotPasswordFragment) {
+                binding.navView.visibility = View.GONE
+            } else {
+                binding.navView.visibility = View.VISIBLE
+            }
         }
     }
 
-    // Ensure Up navigation is handled properly
     override fun onSupportNavigateUp(): Boolean {
-        val navController = findNavController(R.id.nav_host_fragment_activity_main)
         return navController.navigateUp() || super.onSupportNavigateUp()
     }
 }
