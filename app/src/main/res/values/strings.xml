@@ -1,6 +1,21 @@
 <resources>
-    <string name="app_name">TheBig6ix Prediction App</string>
+    <string name="app_name">The Big 6IX</string>
     <string name="title_home">Home</string>
     <string name="Predictions">Predictions</string>
     <string name="Profile">Profile</string>
+
+    <string name="fullName">Enter your Full name</string>
+    <string name="email">Enter your E-mail address</string>
+    <string name="password">Enter your Password</string>
+    <string name="confirmPassword">Confirm your Password</string>
+
+    <string name="forgotpassword">Forgot your Password?</string>
+    <string name="createaccount">Sign Up</string>
+    <string name="enter">Sign In</string>
+    <string name="resetPassword">Reset your Password</string>
+
+    <string name="gmailLogin">Create With Gmail</string>
+    <string name="default_web">226597039359-uc1hdab6si6s0ri1anmhei0jccdplcd8.apps.googleusercontent.com</string>
+
+
 </resources>

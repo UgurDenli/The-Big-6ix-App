@@ -1,5 +1,6 @@
 package com.invenium.thebig6ix.ui.predictions
 
+import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -24,13 +25,14 @@ class PredictionViewModel : ViewModel() {
             try {
                 val response = footballApiService.getFootballFixtures(1) // Specify matchday
                 _footballFixtures.value = response.matches
+                Log.d("API", "Response: $response")
             } catch (e: Exception) {
-                // Handle error
+                Log.e("API", "Error fetching football fixtures: ${e.message}", e)
             }
         }
     }
     private val _text = MutableLiveData<String>().apply {
-        value = "This is Leaderboard Fragment"
+        value = _footballFixtures.toString()
     }
     val text: LiveData<String> = _text
 }

@@ -6,32 +6,33 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import com.invenium.thebig6ix.databinding.FragmentDashboardBinding
 
 class PredictionFragment : Fragment() {
 
     private var _binding: FragmentDashboardBinding? = null
-
-    // This property is only valid between onCreateView and
-    // onDestroyView.
     private val binding get() = _binding!!
+
+    private lateinit var predictionViewModel: PredictionViewModel
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val predictionViewModel =
-            ViewModelProvider(this).get(PredictionViewModel::class.java)
-
         _binding = FragmentDashboardBinding.inflate(inflater, container, false)
         val root: View = binding.root
 
-        val textView: TextView = binding.textDashboard
-        predictionViewModel.text.observe(viewLifecycleOwner) {
-            textView.text = it
-        }
+        predictionViewModel = ViewModelProvider(this).get(PredictionViewModel::class.java)
+
+        predictionViewModel.footballFixtures.observe(viewLifecycleOwner, Observer { fixtures ->
+            // Update your UI here with the fetched football fixtures
+            val fixturesText = fixtures.joinToString("\n") { "${it.homeTeam} vs ${it.awayTeam} on ${it.date}" }
+            binding.textDashboard.text = fixturesText
+        })
+
         return root
     }
 
