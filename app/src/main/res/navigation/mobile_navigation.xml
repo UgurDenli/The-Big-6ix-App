@@ -15,13 +15,13 @@
         android:id="@+id/navigation_dashboard"
         android:name="com.invenium.thebig6ix.ui.predictions.PredictionFragment"
         android:label="@string/Predictions"
-        tools:layout="@layout/fragment_dashboard" />
+        tools:layout="@layout/fragment_prediction" />
 
     <fragment
         android:id="@+id/navigation_notifications"
         android:name="com.invenium.thebig6ix.ui.profile.ProfileFragment"
         android:label="@string/Profile"
-        tools:layout="@layout/fragment_notifications" />
+        tools:layout="@layout/fragment_profile" />
     <fragment
         android:id="@+id/navigation_login"
         android:name="com.invenium.thebig6ix.ui.login.LoginFragment"

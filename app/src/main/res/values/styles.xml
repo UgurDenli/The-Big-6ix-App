@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme. -->
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+        <!-- Other customizations if needed -->
+    </style>
+
+    <style name="AppTheme.Light" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Customize attributes for light mode -->
+        <item name="colorPrimary">@color/white</item>
+        <item name="colorPrimaryVariant">@color/white</item>
+        <!-- Add more customizations for light mode -->
+    </style>
+    <style name="AppTheme.Dark" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Customize attributes for dark mode -->
+        <item name="colorPrimary">@color/black</item>
+        <item name="colorPrimaryVariant">@color/black</item>
+        <!-- Add more customizations for dark mode -->
+    </style>
+</resources>

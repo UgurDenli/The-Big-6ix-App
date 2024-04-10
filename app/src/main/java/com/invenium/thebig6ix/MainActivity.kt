@@ -8,6 +8,7 @@ import androidx.navigation.findNavController
 import androidx.navigation.ui.setupWithNavController
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.invenium.thebig6ix.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -17,6 +18,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        FirebaseFirestore.getInstance()
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)

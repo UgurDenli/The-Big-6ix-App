@@ -1,42 +1,91 @@
 package com.invenium.thebig6ix.ui.profile
 
+import android.app.AlertDialog
+import android.content.Intent
 import android.os.Bundle
+import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.ViewModelProvider
-import com.invenium.thebig6ix.databinding.FragmentNotificationsBinding
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
+import com.invenium.thebig6ix.databinding.FragmentProfileBinding
 
 class ProfileFragment : Fragment() {
 
-    private var _binding: FragmentNotificationsBinding? = null
-
-    // This property is only valid between onCreateView and
-    // onDestroyView.
+    private var _binding: FragmentProfileBinding? = null
     private val binding get() = _binding!!
+
+    private lateinit var auth: FirebaseAuth
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val profileViewModel =
-            ViewModelProvider(this).get(ProfileViewModel::class.java)
+        _binding = FragmentProfileBinding.inflate(inflater, container, false)
+        val view = binding.root
 
-        _binding = FragmentNotificationsBinding.inflate(inflater, container, false)
-        val root: View = binding.root
+        auth = Firebase.auth
 
-        val textView: TextView = binding.textNotifications
-        profileViewModel.text.observe(viewLifecycleOwner) {
-            textView.text = it
+        val currentUser = auth.currentUser
+        val userEmail = currentUser?.email
+
+        // Fetch and set user's display name
+        val username = currentUser?.displayName ?: "Unknown User"
+        binding.usernameTextView.text = username
+
+        // Set the night mode to follow the system's setting
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+
+        binding.profileImageView.setOnClickListener {
+            showImageOptions()
         }
-        return root
+
+        return view
+    }
+
+    private fun showImageOptions() {
+        val options = arrayOf("Remove Image", "Choose from Gallery")
+        val builder = AlertDialog.Builder(requireContext())
+        builder.setTitle("Profile Picture")
+        builder.setItems(options) { _, which ->
+            when (which) {
+                0 -> removeProfileImage()
+                1 -> chooseProfileImage()
+            }
+        }
+        builder.show()
+    }
+
+    private fun removeProfileImage() {
+        // Implement logic to remove profile image
+    }
+
+    private fun chooseProfileImage() {
+        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        startActivityForResult(intent, REQUEST_IMAGE_PICK)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_IMAGE_PICK && resultCode == AppCompatActivity.RESULT_OK && data != null) {
+            val selectedImageUri = data.data
+            // Set selected image to ImageView
+            binding.profileImageView.setImageURI(selectedImageUri)
+        }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    companion object {
+        private const val REQUEST_IMAGE_PICK = 100
     }
 }

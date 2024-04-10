@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- Match Selection -->
+    <Spinner
+        android:id="@+id/fixtureSpinner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:prompt="@string/select_fixture" />
+
+    <!-- Prediction Inputs -->
+    <EditText
+        android:id="@+id/goalsHomeTeamEditText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/goals_home_team_hint" />
+
+    <EditText
+        android:id="@+id/goalsAwayTeamEditText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/goals_away_team_hint" />
+
+    <!-- Additional prediction inputs (if needed) -->
+
+    <!-- Submit Button -->
+    <Button
+        android:id="@+id/submitPredictionButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/submit_prediction" />
+
+</LinearLayout>
