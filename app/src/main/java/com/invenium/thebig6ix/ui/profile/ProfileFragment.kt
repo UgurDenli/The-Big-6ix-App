@@ -37,7 +37,7 @@ class ProfileFragment : Fragment() {
 
         // Fetch and set user's display name
         val username = currentUser?.displayName ?: "Unknown User"
-        binding.usernameTextView.text = username
+        binding.profileTextView.text = username
 
         // Set the night mode to follow the system's setting
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
