@@ -5,6 +5,16 @@
     android:orientation="vertical"
     android:padding="16dp">
 
+    <!-- Title -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Make your predictions"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_gravity="center"
+        android:layout_marginBottom="16dp"/>
+
     <!-- Match Selection -->
     <Spinner
         android:id="@+id/fixtureSpinner"
@@ -12,20 +22,32 @@
         android:layout_height="wrap_content"
         android:prompt="@string/select_fixture" />
 
+    <!-- Space -->
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="180dp" />
+
     <!-- Prediction Inputs -->
-    <EditText
-        android:id="@+id/goalsHomeTeamEditText"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="@string/goals_home_team_hint" />
+        android:orientation="vertical">
 
-    <EditText
-        android:id="@+id/goalsAwayTeamEditText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="@string/goals_away_team_hint" />
+        <EditText
+            android:id="@+id/goalsHomeTeamEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/goals_home_team_hint" />
 
-    <!-- Additional prediction inputs (if needed) -->
+        <EditText
+            android:id="@+id/goalsAwayTeamEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/goals_away_team_hint" />
+
+        <!-- Additional prediction inputs (if needed) -->
+
+    </LinearLayout>
 
     <!-- Submit Button -->
     <Button

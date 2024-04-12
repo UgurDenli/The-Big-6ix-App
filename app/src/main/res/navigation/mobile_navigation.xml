@@ -43,11 +43,19 @@
     <fragment
         android:id="@+id/createAccountFragment"
         android:name="com.invenium.thebig6ix.ui.createaccount.CreateAccountFragment"
-        android:label="CreateAccountFragment" />
+        android:label="CreateAccountFragment" >
+        <action
+            android:id="@+id/action_createAccountFragment_to_navigation_login"
+            app:destination="@id/navigation_login" />
+    </fragment>
     <fragment
         android:id="@+id/forgotPasswordFragment"
         android:name="com.invenium.thebig6ix.ui.forgotpassword.ForgotPasswordFragment"
-        android:label="ForgotPasswordFragment" />
+        android:label="ForgotPasswordFragment" >
+        <action
+            android:id="@+id/action_forgotPasswordFragment_to_navigation_login"
+            app:destination="@id/navigation_login" />
+    </fragment>
     <fragment
         android:id="@+id/leaderboardFragment"
         android:name="com.invenium.thebig6ix.ui.leaderboard.LeaderboardFragment"

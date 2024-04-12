@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -41,6 +42,17 @@ class LoginFragment : Fragment() {
             .requestEmail()
             .build()
         googleSignInClient = GoogleSignIn.getClient(requireContext(), gso)
+
+        val createAccountTextView: TextView = view.findViewById(R.id.textViewCreateAccount)
+
+        createAccountTextView.setOnClickListener {
+            findNavController().navigate(R.id.action_navigation_login_to_createAccountFragment)
+        }
+        val forgotPasswordTextView: TextView = view.findViewById(R.id.textViewForgotPassword)
+
+        forgotPasswordTextView.setOnClickListener {
+            findNavController().navigate(R.id.action_navigation_login_to_forgotPasswordFragment)
+        }
 
         // Set OnClickListener for Google Sign-In button
         view.findViewById<Button>(R.id.buttonGoogleSignIn).setOnClickListener {

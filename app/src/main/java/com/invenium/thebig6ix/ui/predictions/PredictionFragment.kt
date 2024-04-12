@@ -31,9 +31,9 @@ class PredictionFragment : Fragment() {
         _binding = FragmentPredictionBinding.inflate(inflater, container, false)
         val view = binding.root
 
-        // Initialize spinner
+        // Initialize spinner adapter
         spinnerAdapter = ArrayAdapter(requireContext(), R.layout.simple_spinner_item, fixtureList)
-        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerAdapter.setDropDownViewResource(R.layout.simple_spinner_dropdown_item)
         binding.fixtureSpinner.adapter = spinnerAdapter
 
         // Populate spinner with fixture data from Firestore
@@ -52,9 +52,11 @@ class PredictionFragment : Fragment() {
     }
 
     private fun retrieveFixtureData() {
+        Log.d(TAG, "Retrieving fixture data...")
         db.collection("fixtures")
             .get()
             .addOnSuccessListener { documents ->
+                Log.d(TAG, "Number of fixtures retrieved: ${documents.size()}")
                 for (document in documents) {
                     val homeTeam = document.getString("homeTeam") ?: ""
                     val awayTeam = document.getString("awayTeam") ?: ""
@@ -71,7 +73,6 @@ class PredictionFragment : Fragment() {
                 Log.e(TAG, "Error retrieving fixture data: $exception")
             }
     }
-
     private fun submitPrediction(homeTeamGoals: Int, awayTeamGoals: Int) {
         val prediction = hashMapOf(
             "home_team_goals" to homeTeamGoals,
