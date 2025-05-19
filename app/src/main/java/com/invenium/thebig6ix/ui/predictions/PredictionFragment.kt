@@ -1,27 +1,30 @@
 package com.invenium.thebig6ix.ui.predictions
 
-import android.R
-import android.content.ContentValues.TAG
 import android.os.Bundle
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.invenium.thebig6ix.data.FootballFixture
 import com.invenium.thebig6ix.databinding.FragmentPredictionBinding
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class PredictionFragment : Fragment() {
 
     private var _binding: FragmentPredictionBinding? = null
     private val binding get() = _binding!!
 
+    private lateinit var viewModel: PredictionViewModel
+    private lateinit var fixtureList: MutableList<FootballFixture>
+
     private val db = FirebaseFirestore.getInstance()
-    private val predictionsCollection = db.collection("predictions")
-    private val fixtureList = mutableListOf<String>() // List to store fixture names
-    private lateinit var spinnerAdapter: ArrayAdapter<String>
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -29,66 +32,94 @@ class PredictionFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentPredictionBinding.inflate(inflater, container, false)
-        val view = binding.root
+        return binding.root
+    }
 
-        // Initialize spinner adapter
-        spinnerAdapter = ArrayAdapter(requireContext(), R.layout.simple_spinner_item, fixtureList)
-        spinnerAdapter.setDropDownViewResource(R.layout.simple_spinner_dropdown_item)
-        binding.fixtureSpinner.adapter = spinnerAdapter
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
-        // Populate spinner with fixture data from Firestore
-        retrieveFixtureData()
+        viewModel = ViewModelProvider(this)[PredictionViewModel::class.java]
 
-        binding.submitPredictionButton.setOnClickListener {
-            val homeTeamGoals = binding.goalsHomeTeamEditText.text.toString()
-            val awayTeamGoals = binding.goalsAwayTeamEditText.text.toString()
+        // Initialize the fixture list
+        fixtureList = mutableListOf()
 
-            if (homeTeamGoals.isNotBlank() && awayTeamGoals.isNotBlank()) {
-                submitPrediction(homeTeamGoals.toInt(), awayTeamGoals.toInt())
-            }
+        // Set up the Spinner
+        setupSpinner()
+
+        // Fetch fixtures from Firebase using coroutine
+        lifecycleScope.launch {
+            fetchFixtures()
         }
 
-        return view
+        binding.submitPredictionButton.setOnClickListener {
+            val homeGoals = binding.goalsHomeTeamEditText.text.toString()
+            val awayGoals = binding.goalsAwayTeamEditText.text.toString()
+            val selectedFixture = binding.fixtureSpinner.selectedItem as? FootballFixture
+            val userId = FirebaseAuth.getInstance().currentUser?.uid
+
+            if (homeGoals.isNotBlank() && awayGoals.isNotBlank() && selectedFixture != null && userId != null) {
+                viewModel.submitPrediction(
+                    homeGoals.toInt(),
+                    awayGoals.toInt(),
+                    selectedFixture,
+                    userId,
+                    onSuccess = {
+                        Toast.makeText(context, "Prediction submitted!", Toast.LENGTH_SHORT).show()
+                    },
+                    onFailure = {
+                        Toast.makeText(context, "Failed to submit prediction", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            } else {
+                Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val currentUser = FirebaseAuth.getInstance().currentUser
+        val isAdmin = currentUser?.email == "ugurdenli30@gmail.com" // Replace with your actual admin email
+
+        binding.updatePointsButton.visibility = if (isAdmin) View.VISIBLE else View.GONE
+
+        binding.updatePointsButton.setOnClickListener {
+            viewModel.updatePointsForCompletedFixtures()
+        }
     }
 
-    private fun retrieveFixtureData() {
-        Log.d(TAG, "Retrieving fixture data...")
-        db.collection("fixtures")
-            .get()
-            .addOnSuccessListener { documents ->
-                Log.d(TAG, "Number of fixtures retrieved: ${documents.size()}")
-                for (document in documents) {
-                    val homeTeam = document.getString("homeTeam") ?: ""
-                    val awayTeam = document.getString("awayTeam") ?: ""
-                    val date = document.getString("date") ?: ""
-                    val time = document.getString("time") ?: ""
-                    val fixtureName = "$homeTeam vs $awayTeam - $date, $time"
-                    fixtureList.add(fixtureName)
-                }
-                // Notify adapter that data set has changed
-                spinnerAdapter.notifyDataSetChanged()
-            }
-            .addOnFailureListener { exception ->
-                // Handle failure
-                Log.e(TAG, "Error retrieving fixture data: $exception")
-            }
-    }
-    private fun submitPrediction(homeTeamGoals: Int, awayTeamGoals: Int) {
-        val prediction = hashMapOf(
-            "home_team_goals" to homeTeamGoals,
-            "away_team_goals" to awayTeamGoals
+    private fun setupSpinner() {
+        val spinnerAdapter = ArrayAdapter<FootballFixture>(
+            requireContext(),
+            android.R.layout.simple_spinner_item,
+            fixtureList
         )
+        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.fixtureSpinner.adapter = spinnerAdapter
+    }
 
-        predictionsCollection.add(prediction)
-            .addOnSuccessListener { documentReference ->
-                Log.d(TAG, "Prediction added with ID: ${documentReference.id}")
-                // Show a success message or navigate to another screen
+    private suspend fun fetchFixtures() {
+        try {
+            val fixturesSnapshot = db.collection("fixtures").get().await()
+
+            fixtureList.clear()
+
+            for (document in fixturesSnapshot.documents) {
+                val homeTeam = document.getString("homeTeam") ?: continue
+                val awayTeam = document.getString("awayTeam") ?: continue
+                val date = document.getString("date") ?: continue
+                val id = document.id // Use the document ID as a unique identifier
+
+                val fixture = FootballFixture(id, homeTeam, awayTeam, date,
+                    homeTeamGoals = document.getLong("homeTeamGoals")?.toInt() ?: -1,
+                    awayTeamGoals = document.getLong("awayTeamGoals")?.toInt() ?: -1,
+                    winner = document.getString("winner") ?: ""
+                )
+                fixtureList.add(fixture)
             }
-            .addOnFailureListener { exception ->
-                Log.w(TAG, "Error adding prediction", exception)
-                // Show an error message to the user
-                Toast.makeText(context, "Failed to submit prediction", Toast.LENGTH_SHORT).show()
-            }
+
+            // Update spinner adapter after fetching data
+            (binding.fixtureSpinner.adapter as ArrayAdapter<FootballFixture>).notifyDataSetChanged()
+
+        } catch (e: Exception) {
+            Toast.makeText(context, "Error fetching fixtures: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onDestroyView() {

@@ -15,6 +15,30 @@
         android:textStyle="bold"
         android:layout_marginBottom="16dp"/>
 
+    <!-- Filter Options -->
+    <RadioGroup
+        android:id="@+id/filterRadioGroup"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+        <RadioButton
+            android:id="@+id/weeklyFilter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Weekly"/>
+        <RadioButton
+            android:id="@+id/monthlyFilter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Monthly"/>
+        <RadioButton
+            android:id="@+id/totalFilter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Total"/>
+    </RadioGroup>
+
     <!-- Leaderboard RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/fullLeaderboardRecyclerView"

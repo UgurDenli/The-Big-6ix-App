@@ -16,7 +16,7 @@ class LeaderboardFragment : Fragment() {
     private val binding get() = _binding!!
 
     private val db = FirebaseFirestore.getInstance()
-    private val leaderboardCollection = db.collection("leaderboard")
+    private val leaderboardCollection = db.collection("users")
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -45,14 +45,13 @@ class LeaderboardFragment : Fragment() {
             .addOnSuccessListener { result ->
                 val leaderboardList = mutableListOf<LeaderboardItem>()
                 for (document in result) {
-                    val score = document.getDouble("score") ?: 0.0
-                    val username = document.getString("username") ?: ""
-                    val leaderboardItem = LeaderboardItem(username, score)
+                    val fullName = document.getString("fullName") ?: ""
+                    val monthlyScore = document.get("monthlyScore") as? Map<Int, Int> ?: emptyMap()
+                    val leaderboardItem = LeaderboardItem(fullName, monthlyScore)
                     leaderboardList.add(leaderboardItem)
                 }
                 // Sort the leaderboard list by score in descending order
-                val sortedLeaderboardList = leaderboardList.sortedByDescending { it.score }
-                // Update the RecyclerView with the sorted data
+                val sortedLeaderboardList = leaderboardList.sortedByDescending { it.monthlyScore.values.sum() }
                 leaderboardAdapter.submitList(sortedLeaderboardList)
             }
             .addOnFailureListener { exception ->

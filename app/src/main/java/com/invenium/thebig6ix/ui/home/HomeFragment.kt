@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AnimationUtils
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
@@ -46,10 +47,19 @@ class HomeFragment : Fragment() {
         binding.viewFullLeaderboardButton.setOnClickListener {
             findNavController().navigate(R.id.action_navigation_home_to_leaderboardFragment)
         }
+        applyAnimations()
 
         return view
     }
+    private fun applyAnimations() {
+        // Fade-in animation for RecyclerView
+        val fadeInAnimation = AnimationUtils.loadAnimation(requireContext(), R.anim.fade_in)
+        binding.leaderboardRecyclerView.startAnimation(fadeInAnimation)
 
+        // Scale animation for the button
+        val scaleAnimation = AnimationUtils.loadAnimation(requireContext(), R.anim.scale)
+        binding.viewFullLeaderboardButton.startAnimation(scaleAnimation)
+    }
     private fun setupRecyclerView() {
         // Initialize the LinearLayoutManager and set it to the RecyclerView
         val layoutManager = LinearLayoutManager(requireContext())
@@ -69,15 +79,14 @@ class HomeFragment : Fragment() {
             .addOnSuccessListener { result ->
                 val leaderboardList = mutableListOf<LeaderboardItem>()
                 for (document in result) {
-                    // Retrieve score and username from Firestore
-                    val score = document.getDouble("score") ?: 0.0
-                    val username = document.getString("username") ?: ""
-                    val leaderboardItem = LeaderboardItem(username, score)
+                    val fullName = document.getString("fullName") ?: ""
+                    val monthlyScore = document.get("monthlyScore") as? Map<Int, Int> ?: emptyMap()
+                    val leaderboardItem = LeaderboardItem(fullName, monthlyScore)
                     leaderboardList.add(leaderboardItem)
                 }
-                // Update the RecyclerView with the retrieved data
-                leaderboardAdapter.submitList(leaderboardList)
-
+                // Sort the leaderboard list by score in descending order
+                val sortedLeaderboardList = leaderboardList.sortedByDescending { it.monthlyScore.values.sum() }
+                leaderboardAdapter.submitList(sortedLeaderboardList)
                 // Check if the current user is in the top 10 leaderboard
                 val currentUser = FirebaseAuth.getInstance().currentUser
                 val userId = currentUser?.uid

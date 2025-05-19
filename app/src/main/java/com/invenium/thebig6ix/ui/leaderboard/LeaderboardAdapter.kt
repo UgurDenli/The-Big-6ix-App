@@ -1,5 +1,6 @@
 package com.invenium.thebig6ix.ui.leaderboard
 
+import android.annotation.SuppressLint
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -29,8 +30,9 @@ class LeaderboardAdapter : ListAdapter<LeaderboardItem, LeaderboardAdapter.ViewH
         private val scoreTextView: TextView = itemView.findViewById(R.id.scoreTextView)
 
         fun bind(leaderboardItem: LeaderboardItem) {
-            usernameTextView.text = leaderboardItem.username
-            scoreTextView.text = leaderboardItem.score.toString()
+            usernameTextView.text = leaderboardItem.fullName
+            val score = (leaderboardItem.monthlyScore.values.firstOrNull() as? Long)?.toInt() ?: 0
+            scoreTextView.text = score.toString()
         }
     }
 
@@ -39,8 +41,9 @@ class LeaderboardAdapter : ListAdapter<LeaderboardItem, LeaderboardAdapter.ViewH
             return oldItem == newItem
         }
 
+        @SuppressLint("DiffUtilEquals")
         override fun areContentsTheSame(oldItem: LeaderboardItem, newItem: LeaderboardItem): Boolean {
-            return oldItem.username == newItem.username && oldItem.score == newItem.score
+            return oldItem.fullName == newItem.fullName && oldItem.monthlyScore == newItem.monthlyScore
         }
     }
 }

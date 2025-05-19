@@ -1,5 +1,6 @@
 package com.invenium.thebig6ix.ui.login
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -14,6 +15,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.fragment.app.Fragment
+import androidx.navigation.fragment.findNavController
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
@@ -26,6 +28,10 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.invenium.thebig6ix.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -47,26 +53,21 @@ class LoginFragment : Fragment() {
     }
 
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        val view = inflater.inflate(R.layout.fragment_login, container, false) // Inflate your layout
-
+        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
+    ): View {
+        val view = inflater.inflate(R.layout.fragment_login, container, false)
         signInButton = view.findViewById(R.id.buttonGoogleSignIn)
         privacyPolicyTextView = view.findViewById(R.id.textViewPrivacyPolicy)
-
         return view
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
         auth = FirebaseAuth.getInstance()
 
-        // Configure Google Sign-In
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web))
+            .requestServerAuthCode(getString(R.string.default_web), true) // Get OAuth Token
             .requestEmail()
             .requestProfile()
             .requestScopes(
@@ -75,12 +76,13 @@ class LoginFragment : Fragment() {
             )
             .build()
 
+
         googleSignInClient = GoogleSignIn.getClient(requireActivity(), gso)
 
         googleSignInLauncher = registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
-            if (result.resultCode == RC_SIGN_IN) {
+            if (result.resultCode == Activity.RESULT_OK) {
                 val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
                 handleSignInResult(task)
             } else {
@@ -88,26 +90,20 @@ class LoginFragment : Fragment() {
             }
         }
 
-        signInButton.setOnClickListener {
-            signIn()
-        }
-        privacyPolicyTextView.setOnClickListener {
-            openPrivacyPolicy()
-        }
+        signInButton.setOnClickListener { signIn() }
+        privacyPolicyTextView.setOnClickListener { openPrivacyPolicy() }
     }
 
     private fun signIn() {
-        val signInIntent = googleSignInClient.signInIntent
-        googleSignInLauncher.launch(signInIntent)
+        googleSignInLauncher.launch(googleSignInClient.signInIntent)
     }
 
     private fun handleSignInResult(completedTask: Task<GoogleSignInAccount>) {
         try {
             val account = completedTask.getResult(ApiException::class.java)!!
-            Log.d(TAG, "firebaseAuthWithGoogle: " + account.id)
             firebaseAuthWithGoogle(account.idToken!!)
         } catch (e: ApiException) {
-            Log.w(TAG, "signInResult:failed code=" + e.statusCode)
+            Log.w(TAG, "signInResult:failed code=${e.statusCode}", e)
         }
     }
 
@@ -116,121 +112,127 @@ class LoginFragment : Fragment() {
         auth.signInWithCredential(credential)
             .addOnCompleteListener(requireActivity()) { task ->
                 if (task.isSuccessful) {
-                    val user = auth.currentUser
-                    user?.let {
-                        checkYouTubeMembership(it.uid, idToken)
+                    val account = GoogleSignIn.getLastSignedInAccount(requireContext())
+                    val serverAuthCode = account?.serverAuthCode
+
+                    if (!serverAuthCode.isNullOrEmpty()) {
+                        exchangeAuthCodeForAccessToken(serverAuthCode)
+                    } else {
+                        Log.e(TAG, "Google Access Token is null.")
                     }
                 } else {
                     Log.w(TAG, "signInWithCredential:failure", task.exception)
-                    Toast.makeText(requireContext(), "Authentication Failed.", Toast.LENGTH_SHORT)
-                        .show()
                 }
             }
     }
+    private fun exchangeAuthCodeForAccessToken(authCode: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("https://oauth2.googleapis.com/token")
+                val postData = "code=$authCode" +
+                        "&client_id=${getString(R.string.default_web)}" +
+                        "&client_secret=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" +
+                        "&redirect_uri=" +
+                        "&grant_type=authorization_code"
+
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+
+                val outputStream = connection.outputStream
+                outputStream.write(postData.toByteArray(Charsets.UTF_8))
+                outputStream.flush()
+                outputStream.close()
+
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                val jsonResponse = JSONObject(response)
+                val accessToken = jsonResponse.optString("access_token", "")
+
+                if (accessToken.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        checkYouTubeMembership(auth.currentUser!!.uid, accessToken)
+                    }
+                } else {
+                    Log.e(TAG, "Failed to fetch access token.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error exchanging auth code for access token: ${e.message}")
+            }
+        }
+    }
+
 
     private fun checkYouTubeMembership(userId: String, accessToken: String) {
         fetchAllSubscriptions(accessToken) { channelIds ->
-            val isMember = channelIds.contains("UCUP5RcljxXkKm3agi9WNrDA") // Replace with your YouTube Channel ID
+            val isMember = channelIds.contains("UCUP5RcljxXkKm3agi9WNrDA")
             if (isMember) {
                 val db = FirebaseFirestore.getInstance()
                 val userRef = db.collection("users").document(userId)
                 userRef.get()
                     .addOnSuccessListener { document ->
                         if (document.exists()) {
-                            Log.d(TAG, "User exists in Firestore.")
                             checkOnboardingStatus(userId)
                         } else {
-                            Log.d(TAG, "User doesn't exist in Firestore - creating a new document.")
                             createUserDocument(userId)
                         }
                     }
                     .addOnFailureListener { e ->
                         Log.w(TAG, "Error getting user document", e)
-                        Toast.makeText(
-                            requireContext(),
-                            "Error getting user document",
-                            Toast.LENGTH_SHORT
-                        ).show()
                     }
             } else {
-                Log.d(TAG, "You are not a member of the required YouTube channel.")
-                Toast.makeText(
-                    requireContext(),
-                    "You are not a member of the required YouTube channel.",
-                    Toast.LENGTH_SHORT
-                ).show()
-                auth.signOut() // Sign out if not a member
+                auth.signOut()
             }
         }
     }
 
-    private fun createUserDocument(userId: String) {
-        val db = FirebaseFirestore.getInstance()
-        val userRef = db.collection("users").document(userId)
-
-        val userData = hashMapOf(
-            "fullName" to (auth.currentUser?.displayName ?: ""),
-            "email" to (auth.currentUser?.email ?: ""),
-            "score" to 0,
-            "completedOnboarding" to false,
-            "generalEmailsEnabled" to true,
-            "personalizedEmailsEnabled" to true,
-            "weeklyScore" to 0,
-            "monthlyScore" to 0
-        )
-
-        userRef.set(userData)
-            .addOnSuccessListener {
-                Log.d(TAG, "User document created in Firestore successfully.")
-                navigateToOnboardingView()
-            }
-            .addOnFailureListener { e ->
-                Log.w(TAG, "Error creating user document", e)
-                Toast.makeText(
-                    requireContext(),
-                    "Error creating user document",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-    }
-
     private fun fetchAllSubscriptions(accessToken: String, completion: (List<String>) -> Unit) {
-        val allChannelIds = mutableListOf<String>()
-        var nextPageToken: String? = null
+        CoroutineScope(Dispatchers.IO).launch {
+            val allChannelIds = mutableListOf<String>()
+            var nextPageToken: String? = null
 
-        do {
-            val urlString = "https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=50${nextPageToken?.let { "&pageToken=$it" } ?: ""}"
-            val url = URL(urlString)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("Authorization", "Bearer $accessToken")
+            do {
+                val urlString =
+                    "https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=50${nextPageToken?.let { "&pageToken=$it" } ?: ""}"
+                val url = URL(urlString)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Authorization", "Bearer $accessToken")
 
-            val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-                try {
-                    val jsonResponse = JSONObject(responseText)
-                    val itemsArray = jsonResponse.getJSONArray("items")
-                    for (i in 0 until itemsArray.length()) {
-                        val channelId = itemsArray.getJSONObject(i)
-                            .getJSONObject("snippet")
-                            .getJSONObject("resourceId")
-                            .getString("channelId")
-                        allChannelIds.add(channelId)
+                val responseCode = connection.responseCode
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                    try {
+                        val jsonResponse = JSONObject(responseText)
+                        val itemsArray = jsonResponse.getJSONArray("items")
+                        for (i in 0 until itemsArray.length()) {
+                            val channelId = itemsArray.getJSONObject(i)
+                                .getJSONObject("snippet")
+                                .getJSONObject("resourceId")
+                                .getString("channelId")
+                            allChannelIds.add(channelId)
+                        }
+                        nextPageToken = jsonResponse.optString("nextPageToken", null)
+                    } catch (e: JSONException) {
+                        Log.e(TAG, "Error parsing JSON response: ${e.message}")
                     }
-                    nextPageToken = jsonResponse.optString("nextPageToken", null)
-                } catch (e: JSONException) {
-                    Log.e(TAG, "Error parsing JSON response: ${e.message}")
+                } else if (responseCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
+                    Log.e(
+                        TAG,
+                        "HTTP error code: 401 - Unauthorized. Please check the access token."
+                    )
+                    // Handle token refresh logic here if needed
+                } else {
+                    Log.e(TAG, "HTTP error code: $responseCode")
                 }
-            } else {
-                Log.e(TAG, "HTTP error code: $responseCode")
+                connection.disconnect()
+            } while (nextPageToken != null)
+
+            withContext(Dispatchers.Main) {
+                completion(allChannelIds)
             }
-            connection.disconnect()
-        } while (nextPageToken != null)
-
-        completion(allChannelIds)
+        }
     }
-
     private fun checkOnboardingStatus(userId: String) {
         val db = FirebaseFirestore.getInstance()
         val userRef = db.collection("users").document(userId)
@@ -262,21 +264,48 @@ class LoginFragment : Fragment() {
                 ).show()
             }
     }
-
+    private fun openPrivacyPolicy() {
+        val url = "https://thebig6ix.co.uk/the-big-6ix-privacy-policy/"
+        CustomTabsIntent.Builder().build().launchUrl(requireContext(), Uri.parse(url))
+    }
     private fun navigateToHomeView() {
-        // Implement your navigation to the home activity/fragment
+        findNavController().navigate(R.id.action_navigation_login_to_navigation_home)
         Toast.makeText(requireContext(), "Navigating to Home", Toast.LENGTH_SHORT).show()
     }
 
     private fun navigateToOnboardingView() {
-        // Implement your navigation to the onboarding activity/fragment
+        findNavController().navigate(R.id.action_navigation_login_to_navigation_home)
         Toast.makeText(requireContext(), "Navigating to Onboarding", Toast.LENGTH_SHORT).show()
     }
 
-    private fun openPrivacyPolicy() {
-        val url = "https://thebig6ix.co.uk/the-big-6ix-privacy-policy/" // Replace with your privacy policy URL
-        val builder = CustomTabsIntent.Builder()
-        val customTabsIntent = builder.build()
-        customTabsIntent.launchUrl(requireContext(), Uri.parse(url))
+    private fun createUserDocument(userId: String) {
+        val db = FirebaseFirestore.getInstance()
+        val userRef = db.collection("users").document(userId)
+
+        val userData = hashMapOf(
+            "fullName" to (auth.currentUser?.displayName ?: ""),
+            "email" to (auth.currentUser?.email ?: ""),
+            "score" to 0,
+            "completedOnboarding" to false,
+            "generalEmailsEnabled" to true,
+            "personalizedEmailsEnabled" to true,
+            "weeklyScore" to 0,
+            "monthlyScore" to 0
+        )
+
+        userRef.set(userData)
+            .addOnSuccessListener {
+                Log.d(TAG, "User document created in Firestore successfully.")
+                navigateToOnboardingView()
+            }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "Error creating user document", e)
+                Toast.makeText(
+                    requireContext(),
+                    "Error creating user document",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
     }
 }
+

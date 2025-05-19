@@ -6,10 +6,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.navigation.NavController
 import androidx.navigation.findNavController
 import androidx.navigation.ui.setupWithNavController
-import com.google.firebase.FirebaseApp
-import com.google.firebase.auth.FirebaseAuth
+import androidx.work.*
 import com.google.firebase.firestore.FirebaseFirestore
 import com.invenium.thebig6ix.databinding.ActivityMainBinding
+import com.invenium.thebig6ix.ui.predictions.PredictionCheckWorker
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
@@ -37,7 +38,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
     override fun onSupportNavigateUp(): Boolean {
         return navController.navigateUp() || super.onSupportNavigateUp()
     }

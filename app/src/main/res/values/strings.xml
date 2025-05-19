@@ -15,15 +15,15 @@
     <string name="resetPassword">Reset your Password</string>
 
     <string name="gmailLogin">Create With Gmail</string>
-    <string name="default_web">226597039359–0kn528i5q7vr25h7l0d3tm05ae3kq2rj.apps.googleusercontent.com</string>
+    <string name="default_web">226597039359-uc1hdab6si6s0ri1anmhei0jccdplcd8.apps.googleusercontent.com</string>
 
     <string name="default_username">John Doe</string>
     <string name="profile_image">Profile Image</string>
     <string name="darkmode">Dark Mode</string>
     <string name="currentPoints">Current Points : 0</string>
 
-    <string name="goals_home_team_hint">Enter goals for home team (e.g., Germany)</string>
-    <string name="goals_away_team_hint">Enter goals for away team (e.g., Scotland)</string>
+    <string name="goals_home_team_hint">Home team</string>
+    <string name="goals_away_team_hint">Away team</string>
     <string name="submit_prediction">Submit Your Prediction.</string>
     <string name="select_fixture">Select the Fixture to Predict.</string>
 

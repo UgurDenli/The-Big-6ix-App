@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "226597039359",
+    "firebase_url": "https://the-big-6ix-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "the-big-6ix",
+    "storage_bucket": "the-big-6ix.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:226597039359:android:6b3aa95e40c137d2c130ca",
+        "android_client_info": {
+          "package_name": "com.invenium.thebig6ix"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "226597039359-5m38hrmndn028v7ltc09kqf0ko8u0lis.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.invenium.thebig6ix",
+            "certificate_hash": "7752ffaf570a0c61539ae62c651166068d53e123"
+          }
+        },
+        {
+          "client_id": "226597039359-uc1hdab6si6s0ri1anmhei0jccdplcd8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCuDLDDKEqQQVJ1_EA9l1Zc_EaFdpTEh4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "226597039359-uc1hdab6si6s0ri1anmhei0jccdplcd8.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "226597039359-b5ghjch5jehk78ln6tnsl8cpn2871m1m.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "Reply.TheBig6IX"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
