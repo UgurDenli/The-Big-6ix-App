@@ -10,9 +10,7 @@ import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.fragment.app.Fragment
-import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.auth
 import com.invenium.thebig6ix.databinding.FragmentProfileBinding
 
 class ProfileFragment : Fragment() {
@@ -30,7 +28,6 @@ class ProfileFragment : Fragment() {
         _binding = FragmentProfileBinding.inflate(inflater, container, false)
         val view = binding.root
 
-        auth = Firebase.auth
 
         val currentUser = auth.currentUser
         val userEmail = currentUser?.email

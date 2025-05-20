@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "the-big-6ix"
-  }
+    "default": "the-big-6ix",
+    "staging": "the-big-6ix"
+  },
+  "targets": {},
+  "etags": {}
 }

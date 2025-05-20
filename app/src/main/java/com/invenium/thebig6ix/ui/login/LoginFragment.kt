@@ -25,9 +25,9 @@ import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.invenium.thebig6ix.R
+import com.invenium.thebig6ix.ui.MainComposeActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -268,10 +268,6 @@ class LoginFragment : Fragment() {
         val url = "https://thebig6ix.co.uk/the-big-6ix-privacy-policy/"
         CustomTabsIntent.Builder().build().launchUrl(requireContext(), Uri.parse(url))
     }
-    private fun navigateToHomeView() {
-        findNavController().navigate(R.id.action_navigation_login_to_navigation_home)
-        Toast.makeText(requireContext(), "Navigating to Home", Toast.LENGTH_SHORT).show()
-    }
 
     private fun navigateToOnboardingView() {
         findNavController().navigate(R.id.action_navigation_login_to_navigation_home)
@@ -306,6 +302,11 @@ class LoginFragment : Fragment() {
                     Toast.LENGTH_SHORT
                 ).show()
             }
+    }
+    private fun navigateToHomeView() {
+        val intent = Intent(requireContext(), MainComposeActivity::class.java)
+        startActivity(intent)
+        requireActivity().finish() // Optional: prevents back to login
     }
 }
 
