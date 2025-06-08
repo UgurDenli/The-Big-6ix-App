@@ -53,12 +53,19 @@ class PredictionFragment : Fragment() {
             val selectedFixture = binding.fixtureSpinner.selectedItem as? FootballFixture
 
             if (homeGoals.isNotBlank() && awayGoals.isNotBlank() && selectedFixture != null) {
-                viewModel.submitPrediction(
+                viewModel.submitPredictionIfNotExists(
                     fixtureId = selectedFixture.id,
+                    homeTeam = selectedFixture.homeTeam,
+                    awayTeam = selectedFixture.awayTeam,
                     homeGoals = homeGoals.toInt(),
-                    awayGoals = awayGoals.toInt()
+                    awayGoals = awayGoals.toInt(),
+                    onSuccess = {
+                        Toast.makeText(context, "Prediction submitted!", Toast.LENGTH_SHORT).show()
+                    },
+                    onFailure = {
+                        Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                    }
                 )
-                Toast.makeText(context, "Prediction submitted!", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
             }
@@ -91,7 +98,7 @@ class PredictionFragment : Fragment() {
             for (document in fixturesSnapshot.documents) {
                 val homeTeam = document.getString("homeTeam") ?: continue
                 val awayTeam = document.getString("awayTeam") ?: continue
-                val date = document.getString("date") ?: continue
+                val date = document.getTimestamp("date")?.toDate()?.toString() ?: continue
                 val id = document.id
 
                 val fixture = FootballFixture(

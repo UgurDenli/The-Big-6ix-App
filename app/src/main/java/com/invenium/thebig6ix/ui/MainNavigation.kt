@@ -4,7 +4,6 @@ package com.invenium.thebig6ix.ui
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import com.invenium.thebig6ix.data.FootballFixture
 import com.invenium.thebig6ix.ui.home.HomeScreen
@@ -14,8 +13,10 @@ import com.invenium.thebig6ix.ui.predictions.PredictionViewModel
 import com.invenium.thebig6ix.ui.profile.ProfileScreen
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
-import com.google.android.gms.games.leaderboard.Leaderboard
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.invenium.thebig6ix.ui.home.HomeViewModel
 import com.invenium.thebig6ix.ui.login.LoginScreen
 
 @Composable
@@ -25,12 +26,12 @@ fun MainNavigation(
     userPoints: Int = 0
 ) {
     val navController = rememberNavController()
-    val predictionViewModel = androidx.lifecycle.viewmodel.compose.viewModel<PredictionViewModel>()
+    val predictionViewModel = viewModel<PredictionViewModel>()
 
     val screens = listOf(
         Screen("home", "Home", Icons.Default.Home),
         Screen("predictions", "Predict", Icons.Default.Notifications),
-        Screen("leaderboard", "Leaders", Icons.Default.Star),
+        Screen("leaderboard", "Leaderboard", Icons.Default.Star),
         Screen("profile", "Profile", Icons.Default.AccountCircle)
     )
 
@@ -76,19 +77,25 @@ fun MainNavigation(
                 })
             }
             composable("home") {
-                HomeScreen(fixtures = fixtures, userPoints = userPoints)
+                HomeScreen(userPoints = userPoints)
             }
             composable("predictions") {
-                PredictionScreen(fixtures = fixtures) { fixtureId, home, away ->
-                    predictionViewModel.submitPrediction(fixtureId, home, away)
-                }
+                val predictionViewModel = viewModel<PredictionViewModel>()
+                val homeViewModel = viewModel<HomeViewModel>()
+                val fixtures = homeViewModel.fixtures.collectAsState().value
+
+                PredictionScreen(
+                    fixtures = fixtures,
+                    viewModel = predictionViewModel
+                )
             }
             composable("leaderboard") {
                 LeaderboardScreen()
             }
             composable("profile") {
-                ProfileScreen()
+                ProfileScreen(navController = navController)
             }
+
         }
     }
 }

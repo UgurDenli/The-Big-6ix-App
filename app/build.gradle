@@ -49,6 +49,7 @@ dependencies {
     implementation "androidx.core:core-ktx:1.12.0"
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.6.2"
     implementation "androidx.activity:activity-compose:1.8.2"
+    implementation 'io.coil-kt:coil-compose:2.4.0'
 
     implementation "androidx.compose.ui:ui:1.5.4"
     implementation "androidx.compose.ui:ui-tooling-preview:1.5.4"
@@ -71,6 +72,8 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2"
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.2"
     implementation 'com.google.android.gms:play-services-games:23.2.0'
+    implementation "com.google.accompanist:accompanist-swiperefresh:0.30.1"
+    implementation("com.google.firebase:firebase-storage-ktx")
 
     debugImplementation "androidx.compose.ui:ui-tooling:1.5.4"
     debugImplementation "androidx.compose.ui:ui-test-manifest:1.5.4"
