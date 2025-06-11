@@ -28,6 +28,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             TheBig6ixTheme {
+                MainNavigation() // ← this is your Compose navigation host with BottomBar
+
                 val authViewModel: AuthViewModel = viewModel()
                 val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
 

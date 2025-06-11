@@ -1,6 +1,8 @@
 // file: ui/MainNavigation.kt
 package com.invenium.thebig6ix.ui
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -15,10 +17,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.invenium.thebig6ix.ui.home.HomeViewModel
 import com.invenium.thebig6ix.ui.login.LoginScreen
+import com.invenium.thebig6ix.ui.profile.PastPredictionsScreen
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun MainNavigation(
     startDestination: String = "login",
@@ -43,12 +49,27 @@ fun MainNavigation(
     Scaffold(
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar {
+                NavigationBar(
+                    containerColor = Color.Black, // dark background
+                    tonalElevation = 8.dp
+                ) {
                     screens.forEach { screen ->
+                        val selected = currentRoute == screen.route
                         NavigationBarItem(
-                            icon = { Icon(screen.icon, contentDescription = screen.label) },
-                            label = { Text(screen.label) },
-                            selected = currentRoute == screen.route,
+                            icon = {
+                                Icon(
+                                    screen.icon,
+                                    contentDescription = screen.label,
+                                    tint = if (selected) Color(0xFFFFD700) else Color.White // yellow if selected
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = screen.label,
+                                    color = if (selected) Color(0xFFFFD700) else Color.White // yellow if selected
+                                )
+                            },
+                            selected = selected,
                             onClick = {
                                 if (currentRoute != screen.route) {
                                     navController.navigate(screen.route) {
@@ -57,13 +78,17 @@ fun MainNavigation(
                                         restoreState = true
                                     }
                                 }
-                            }
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                indicatorColor = Color.DarkGray // subtle background highlight for selected
+                            )
                         )
                     }
                 }
             }
         }
-    ) { innerPadding ->
+    )
+    { innerPadding ->
         NavHost(
             navController = navController,
             startDestination = startDestination,
@@ -95,7 +120,9 @@ fun MainNavigation(
             composable("profile") {
                 ProfileScreen(navController = navController)
             }
-
+            composable("past_predictions") {
+                PastPredictionsScreen()
+            }
         }
     }
 }

@@ -129,9 +129,12 @@ fun ProfileScreen(navController: NavController) {
             Text("Accuracy: ${"%.1f".format(accuracy)}%", color = Color.White)
 
             Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = { patchExistingUsersWithPreviousRanks() }) {
-                Text("Patch previousRanks", fontFamily = ironManFont)
+            Button(onClick = {
+                navController.navigate("past_predictions")
+            }) {
+                Text("View Past Predictions", fontFamily = ironManFont)
             }
+
 
             Spacer(modifier = Modifier.height(24.dp))
             Text("Your Predictions", color = Color.White, fontFamily = ironManFont, fontSize = 20.sp)

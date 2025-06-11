@@ -11,5 +11,29 @@
         "*.local"
       ]
     }
+  ],
+  "apphosting": [
+    {
+      "backendId": "the-big-6ix",
+      "rootDir": "C:\\Users\\ugur6\\Documents\\tb6\\The-Big-6ix-App",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "functions"
+      ]
+    },
+    {
+      "backendId": "the-big-6ix",
+      "rootDir": "/",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "functions"
+      ]
+    }
   ]
 }
