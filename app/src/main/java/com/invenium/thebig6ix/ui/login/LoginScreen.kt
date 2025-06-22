@@ -30,9 +30,11 @@ import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.SetOptions
 import com.invenium.thebig6ix.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.OutputStreamWriter
@@ -195,13 +197,37 @@ suspend fun verifyYouTubeMembershipViaCloudFunction(
         conn.disconnect()
 
         if (code == 200) {
+            val firebaseUser = FirebaseAuth.getInstance().currentUser
+            firebaseUser?.let { user ->
+                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val userDoc = db.collection("users").document(user.uid)
+
+                val snapshot = userDoc.get().await()
+                val existingData = snapshot.data ?: emptyMap<String, Any>()
+
+                val existingScore = (existingData["score"] as? Long)?.toInt() ?: 0
+                val existingWeekly = (existingData["weeklyScore"] as? Long)?.toInt() ?: 0
+                val existingMonthly = (existingData["monthlyScore"] as? Long)?.toInt() ?: 0
+
+                val userData = mapOf(
+                    "email" to user.email,
+                    "fullName" to (user.displayName ?: ""),
+                    "score" to existingScore,
+                    "weeklyScore" to existingWeekly,
+                    "monthlyScore" to existingMonthly
+                )
+
+                userDoc.set(userData, SetOptions.merge())
+            }
+
             withContext(Dispatchers.Main) { onSuccess() }
+
         } else {
             val message = JSONObject(response).optString("message", "Access denied")
             withContext(Dispatchers.Main) { onFailure(message) }
         }
     } catch (e: Exception) {
-        Log.e("CloudFunction", "Error: ${e.message}")
+        Log.e("CloudFunction", "Error: ${e.message}", e)
         withContext(Dispatchers.Main) { onFailure("Membership check failed: ${e.message}") }
     }
 }

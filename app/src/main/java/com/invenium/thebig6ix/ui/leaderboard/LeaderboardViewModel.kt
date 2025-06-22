@@ -34,7 +34,9 @@ class LeaderboardViewModel : ViewModel() {
     private var previousUsers: List<UserScore> = emptyList()
 
     fun setFilter(filter: FilterType) {
-        _selectedFilter.value = filter
+        if (_selectedFilter.value != filter) {
+            _selectedFilter.value = filter
+        }
         fetchLeaderboard()
     }
 
