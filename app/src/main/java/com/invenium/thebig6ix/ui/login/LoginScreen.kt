@@ -203,21 +203,25 @@ suspend fun verifyYouTubeMembershipViaCloudFunction(
                 val userDoc = db.collection("users").document(user.uid)
 
                 val snapshot = userDoc.get().await()
-                val existingData = snapshot.data ?: emptyMap<String, Any>()
 
-                val existingScore = (existingData["score"] as? Long)?.toInt() ?: 0
-                val existingWeekly = (existingData["weeklyScore"] as? Long)?.toInt() ?: 0
-                val existingMonthly = (existingData["monthlyScore"] as? Long)?.toInt() ?: 0
-
-                val userData = mapOf(
-                    "email" to user.email,
-                    "fullName" to (user.displayName ?: ""),
-                    "score" to existingScore,
-                    "weeklyScore" to existingWeekly,
-                    "monthlyScore" to existingMonthly
-                )
-
-                userDoc.set(userData, SetOptions.merge())
+                if (snapshot.exists()) {
+                    // 🔒 Existing user — merge only allowed fields (no score fields)
+                    val updateData = mapOf(
+                        "email" to user.email,
+                        "fullName" to (user.displayName ?: "")
+                    )
+                    userDoc.set(updateData, SetOptions.merge())
+                } else {
+                    // 🆕 New user — safe to create full user doc with scores
+                    val newUserData = mapOf(
+                        "email" to user.email,
+                        "fullName" to (user.displayName ?: ""),
+                        "score" to 0,
+                        "weeklyScore" to 0,
+                        "monthlyScore" to 0
+                    )
+                    userDoc.set(newUserData)
+                }
             }
 
             withContext(Dispatchers.Main) { onSuccess() }
