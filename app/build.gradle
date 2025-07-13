@@ -6,14 +6,14 @@ plugins {
 
 android {
     namespace 'com.invenium.thebig6ix'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.invenium.thebig6ix"
         minSdk 24
-        targetSdk 34
-        versionCode 39
-        versionName "1.62.7"
+        targetSdk 35
+        versionCode 41
+        versionName "1.62.9"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -23,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.invenium.thebig6ix.ui.home.HomeViewModel
 import com.invenium.thebig6ix.ui.login.LoginScreen
 import com.invenium.thebig6ix.ui.profile.PastPredictionsScreen
+import com.invenium.thebig6ix.ui.profile.ProfileSettingsScreen
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -102,8 +103,9 @@ fun MainNavigation(
                 })
             }
             composable("home") {
-                HomeScreen(userPoints = userPoints)
+                HomeScreen()
             }
+
             composable("predictions") {
                 val predictionViewModel = viewModel<PredictionViewModel>()
                 val homeViewModel = viewModel<HomeViewModel>()
@@ -122,6 +124,9 @@ fun MainNavigation(
             }
             composable("past_predictions") {
                 PastPredictionsScreen()
+            }
+            composable("profile_settings") {
+                ProfileSettingsScreen(navController = navController)
             }
         }
     }

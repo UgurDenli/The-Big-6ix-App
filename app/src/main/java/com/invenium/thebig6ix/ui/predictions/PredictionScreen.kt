@@ -2,7 +2,6 @@ package com.invenium.thebig6ix.ui.predictions
 
 import android.annotation.SuppressLint
 import android.os.Build
-import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
@@ -40,6 +39,7 @@ fun PredictionScreen(
     val context = LocalContext.current
     val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
     val userPredictions by viewModel.userPredictions.collectAsState()
+    val mostPickedScoreline by viewModel.mostPickedScoreline.collectAsState()
 
     val now by produceState(initialValue = LocalDateTime.now()) {
         while (true) {
@@ -57,15 +57,20 @@ fun PredictionScreen(
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+                .fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
                 painter = painterResource(id = R.drawable.ic_tbsix),
                 contentDescription = null,
-                modifier = Modifier.padding(top = 32.dp).width(300.dp).height(80.dp)
+                modifier = Modifier
+                    .width(300.dp)
+                    .height(80.dp)
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
             Text(
                 text = "The Big 6ix",
                 color = Color(0xFFFFD700),
@@ -73,7 +78,9 @@ fun PredictionScreen(
                 fontWeight = FontWeight.Bold,
                 fontSize = 32.sp
             )
+
             Spacer(modifier = Modifier.height(24.dp))
+
             Text(
                 "Choose Fixture to Predict",
                 color = Color.White,
@@ -82,6 +89,7 @@ fun PredictionScreen(
             )
 
             Spacer(modifier = Modifier.height(12.dp))
+
             Box {
                 OutlinedButton(onClick = { expanded = true }) {
                     Text(
@@ -123,6 +131,7 @@ fun PredictionScreen(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
+
                 if (countdown != null) {
                     Text(
                         text = "Deadline in: $countdown",
@@ -134,7 +143,8 @@ fun PredictionScreen(
                     return@let
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -173,8 +183,21 @@ fun PredictionScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (mostPickedScoreline[fixture.id] != null) {
+                    val pick = mostPickedScoreline[fixture.id]!!
+                    Text(
+                        text = "Most picked: ${pick.first} - ${pick.second}",
+                        color = Color.LightGray,
+                        fontSize = 14.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 val alreadyPredicted = userPredictions.any { it.fixtureId == fixture.id }
+
                 if (alreadyPredicted) {
                     Text(
                         text = "Prediction already submitted.",
@@ -188,18 +211,20 @@ fun PredictionScreen(
                             val away = awayGoals.toIntOrNull()
                             if (home != null && away != null) {
                                 viewModel.submitPredictionIfNotExists(
-                                    fixtureId = fixture.id,
-                                    homeTeam = fixture.homeTeam,
-                                    awayTeam = fixture.awayTeam,
-                                    homeGoals = home,
-                                    awayGoals = away,
-                                    onSuccess = {
-                                        Toast.makeText(context, "Prediction submitted!", Toast.LENGTH_SHORT).show()
-                                    },
-                                    onFailure = {
-                                        Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
-                                    }
-                                )
+                                fixtureId = fixture.id,
+                                homeTeam = fixture.homeTeam,
+                                awayTeam = fixture.awayTeam,
+                                homeGoals = home,
+                                awayGoals = away,
+                                gameWeek = 1, // fallback if null
+                                onSuccess = {
+                                    Toast.makeText(context, "Prediction submitted!", Toast.LENGTH_SHORT).show()
+                                },
+                                onFailure = {
+                                    Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                                }
+                            )
+
                             } else {
                                 Toast.makeText(context, "Enter valid numbers", Toast.LENGTH_SHORT).show()
                             }
@@ -209,6 +234,11 @@ fun PredictionScreen(
                         Text("Submit Prediction", fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+            Button(onClick = {viewModel.refreshFixtures()},
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700)),
+                modifier = Modifier.padding(vertical = 16.dp)) {
+                Text("Refresh Fixtures", color = Color.Black, fontFamily = ironManFont, fontWeight = FontWeight.Bold)
             }
         }
     }
