@@ -11,7 +11,7 @@ class MainComposeActivity : ComponentActivity() {
 
         setContent {
             TheBig6ixTheme {
-                MainNavigation(fixtures = emptyList(), userPoints = 0) // Replace with real data
+                MainNavigation()
             }
         }
     }

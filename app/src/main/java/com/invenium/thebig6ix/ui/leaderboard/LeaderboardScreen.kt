@@ -1,19 +1,22 @@
 package com.invenium.thebig6ix.ui.leaderboard
 
-import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -21,157 +24,239 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.google.firebase.auth.FirebaseAuth
+import coil.compose.rememberAsyncImagePainter
 import com.invenium.thebig6ix.R
-import com.invenium.thebig6ix.ui.leaderboard.FilterType.*
-import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LeaderboardScreen(viewModel: LeaderboardViewModel = viewModel()) {
-    val selectedFilter by viewModel.selectedFilter.collectAsState()
-    val users by viewModel.users.collectAsState()
+fun LeaderboardScreen(
+    viewModel: LeaderboardViewModel = viewModel(),
+    onBack: () -> Unit = {},
+    onViewUserPredictions: (String) -> Unit = {}
+) {
+    val communityUsers by viewModel.communityUsers.collectAsState()
+    val panelScores by viewModel.panelScores.collectAsState()
+    val communityPage by viewModel.communityPage.collectAsState()
+    val panelPage by viewModel.panelPage.collectAsState()
     val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
-    val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
-    val refreshScope = rememberCoroutineScope()
-    var isRefreshing by remember { mutableStateOf(false) }
 
-    fun refresh() {
-        isRefreshing = true
-        refreshScope.launch {
-            viewModel.setFilter(selectedFilter)
-            isRefreshing = false
-        }
-    }
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("Community Scores", "Panel Scores")
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_tbsix),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .padding(top = 32.dp)
-                    .width(300.dp)
-                    .height(80.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "The Big 6ix",
-                color = Color(0xFFFFD700),
-                fontFamily = ironManFont,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterButton("Weekly", WEEKLY, selectedFilter, viewModel, ironManFont)
-                FilterButton("Monthly", MONTHLY, selectedFilter, viewModel, ironManFont)
-                FilterButton("All Time", ALL_TIME, selectedFilter, viewModel, ironManFont)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Pull-to-refresh simulation
-            Button(
-                onClick = { refresh() },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Refresh", fontFamily = ironManFont, color = Color.Black)
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "Leaderboard",
+                    color = Color(0xFFFFD700),
+                    fontFamily = ironManFont,
+                    fontSize = 24.sp
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(48.dp))
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                itemsIndexed(users) { index, user ->
-                    val isCurrentUser = user.uid == currentUserId
-                    val animatedScore by animateIntAsState(user.score)
-
-                    val borderColor = when (index) {
-                        0 -> Color(0xFFFFD700)
-                        1 -> Color(0xFFC0C0C0)
-                        2 -> Color(0xFFCD7F32)
-                        else -> if (isCurrentUser) Color(0xFF1E88E5) else Color.Transparent
-                    }
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .border(BorderStroke(2.dp, borderColor)),
-                        colors = CardDefaults.cardColors(containerColor = Color.DarkGray)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = Color.Black,
+                contentColor = Color(0xFFFFD700)
+            ) {
+                tabs.forEachIndexed { index, label ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = {
+                            selectedTab = index
+                            if (index == 0) viewModel.setCommunityPage(0)
+                            else viewModel.setPanelPage(0)
+                        },
+                        text = {
                             Text(
-                                text = "${index + 1}",
-                                color = Color.White,
+                                label,
+                                color = if (selectedTab == index) Color(0xFFFFD700) else Color.White,
                                 fontFamily = ironManFont,
-                                fontSize = 18.sp,
-                                modifier = Modifier.width(32.dp)
+                                fontSize = 14.sp
                             )
-                            Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                                Text(
-                                    text = user.name,
-                                    color = Color.White,
-                                    fontFamily = ironManFont,
-                                    fontSize = 18.sp
-                                )
-                                Text(
-                                    text = "Points: $animatedScore",
-                                    color = Color.LightGray,
-                                    fontFamily = ironManFont,
-                                    fontSize = 14.sp
-                                )
-                            }
-
-                            val trendIcon = when {
-                                user.trend > 0 -> R.drawable.ic_arrow_up
-                                user.trend < 0 -> R.drawable.ic_arrow_down
-                                else -> null
-                            }
-                            trendIcon?.let {
-                                Icon(
-                                    painter = painterResource(id = it),
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
                         }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (selectedTab == 0) {
+                val pageCount = viewModel.communityPageCount()
+                val start = communityPage * viewModel.pageSize
+                val pageItems = communityUsers.drop(start).take(viewModel.pageSize)
+                val globalOffset = start
+
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    itemsIndexed(pageItems) { localIndex, user ->
+                        val index = globalOffset + localIndex
+                        LeaderboardRow(
+                            rank = index + 1,
+                            name = user.name,
+                            score = user.score,
+                            profileImageUrl = user.profileImageUrl,
+                            uid = user.uid,
+                            ironManFont = ironManFont,
+                            onClick = { onViewUserPredictions(user.uid) }
+                        )
                     }
                 }
+
+                PaginationControls(
+                    currentPage = communityPage,
+                    pageCount = pageCount,
+                    ironManFont = ironManFont,
+                    onPrev = { viewModel.setCommunityPage(communityPage - 1) },
+                    onNext = { viewModel.setCommunityPage(communityPage + 1) }
+                )
+            } else {
+                val pageCount = viewModel.panelPageCount()
+                val start = panelPage * viewModel.pageSize
+                val pageItems = panelScores.drop(start).take(viewModel.pageSize)
+                val globalOffset = start
+
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    itemsIndexed(pageItems) { localIndex, panel ->
+                        val index = globalOffset + localIndex
+                        LeaderboardRow(
+                            rank = index + 1,
+                            name = panel.name,
+                            score = panel.score,
+                            profileImageUrl = null,
+                            uid = null,
+                            ironManFont = ironManFont,
+                            onClick = {}
+                        )
+                    }
+                }
+
+                PaginationControls(
+                    currentPage = panelPage,
+                    pageCount = pageCount,
+                    ironManFont = ironManFont,
+                    onPrev = { viewModel.setPanelPage(panelPage - 1) },
+                    onNext = { viewModel.setPanelPage(panelPage + 1) }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun FilterButton(
-    label: String,
-    filter: FilterType,
-    selectedFilter: FilterType,
-    viewModel: LeaderboardViewModel,
-    font: FontFamily
+private fun LeaderboardRow(
+    rank: Int,
+    name: String,
+    score: Int,
+    profileImageUrl: String?,
+    uid: String?,
+    ironManFont: FontFamily,
+    onClick: () -> Unit
 ) {
-    val isSelected = selectedFilter == filter
-    val bgColor = if (isSelected) Color(0xFFFFD700) else Color.White
-    val contentColor = Color.Black
+    val borderColor = when (rank) {
+        1 -> Color(0xFFFFD700)
+        2 -> Color(0xFFC0C0C0)
+        3 -> Color(0xFFCD7F32)
+        else -> Color.DarkGray
+    }
 
-    Button(
-        onClick = { viewModel.setFilter(filter) },
-        colors = ButtonDefaults.buttonColors(containerColor = bgColor, contentColor = contentColor)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .border(BorderStroke(2.dp, borderColor))
+            .clickable(enabled = uid != null, onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
     ) {
-        Text(label, fontFamily = font, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (rank == 1) "🏆" else "#$rank",
+                color = borderColor,
+                fontFamily = ironManFont,
+                fontSize = 18.sp,
+                modifier = Modifier.width(44.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .border(2.dp, borderColor, CircleShape)
+            ) {
+                if (profileImageUrl != null) {
+                    Image(
+                        painter = rememberAsyncImagePainter(profileImageUrl),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_account),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Text(
+                text = name,
+                color = Color.White,
+                fontFamily = ironManFont,
+                fontSize = 16.sp,
+                modifier = Modifier.weight(1f)
+            )
+
+            Text(
+                text = "$score pts",
+                color = Color(0xFFFFD700),
+                fontFamily = ironManFont,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun PaginationControls(
+    currentPage: Int,
+    pageCount: Int,
+    ironManFont: FontFamily,
+    onPrev: () -> Unit,
+    onNext: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextButton(onClick = onPrev, enabled = currentPage > 0) {
+            Text("← Prev", color = if (currentPage > 0) Color(0xFFFFD700) else Color.DarkGray, fontFamily = ironManFont)
+        }
+        Text(
+            text = "Page ${currentPage + 1} of $pageCount",
+            color = Color.White,
+            fontFamily = ironManFont,
+            fontSize = 14.sp
+        )
+        TextButton(onClick = onNext, enabled = currentPage < pageCount - 1) {
+            Text("Next →", color = if (currentPage < pageCount - 1) Color(0xFFFFD700) else Color.DarkGray, fontFamily = ironManFont)
+        }
     }
 }

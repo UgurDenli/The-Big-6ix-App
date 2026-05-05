@@ -1,4 +1,9 @@
 {
+  "hosting": {
+    "site": "the-big-6ix",
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
+  },
   "functions": [
     {
       "source": "functions",

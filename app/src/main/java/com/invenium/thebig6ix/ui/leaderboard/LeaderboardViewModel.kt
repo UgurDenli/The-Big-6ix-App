@@ -1,87 +1,99 @@
 package com.invenium.thebig6ix.ui.leaderboard
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import java.util.Calendar
-
-enum class FilterType {
-    WEEKLY, MONTHLY, ALL_TIME
-}
 
 data class UserScore(
-    val uid: String,
-    val name: String,
-    val score: Int,
-    val profileImageUrl: String? = null,
-    val trend: Int = 0 // +1 = up, -1 = down, 0 = same or unknown
+    val uid: String = "",
+    val name: String = "",
+    val score: Int = 0,
+    val profileImageUrl: String? = null
+)
+
+data class PanelScore(
+    val name: String = "",
+    val score: Int = 0
 )
 
 class LeaderboardViewModel : ViewModel() {
     private val db = FirebaseFirestore.getInstance()
 
-    private val _selectedFilter = MutableStateFlow(FilterType.ALL_TIME)
-    val selectedFilter: StateFlow<FilterType> = _selectedFilter
+    private val _communityUsers = MutableStateFlow<List<UserScore>>(emptyList())
+    val communityUsers: StateFlow<List<UserScore>> = _communityUsers
 
-    private val _users = MutableStateFlow<List<UserScore>>(emptyList())
-    val users: StateFlow<List<UserScore>> = _users
+    private val _panelScores = MutableStateFlow<List<PanelScore>>(emptyList())
+    val panelScores: StateFlow<List<PanelScore>> = _panelScores
 
-    private var previousUsers: List<UserScore> = emptyList()
+    val pageSize = 10
+    private val _communityPage = MutableStateFlow(0)
+    val communityPage: StateFlow<Int> = _communityPage
 
-    fun setFilter(filter: FilterType) {
-        if (_selectedFilter.value != filter) {
-            _selectedFilter.value = filter
-        }
-        fetchLeaderboard()
-    }
+    private val _panelPage = MutableStateFlow(0)
+    val panelPage: StateFlow<Int> = _panelPage
+
+    private var communityListener: ListenerRegistration? = null
+    private var panelListener: ListenerRegistration? = null
 
     init {
-        fetchLeaderboard()
+        startCommunityListener()
+        startPanelListener()
     }
 
-    private fun fetchLeaderboard() {
-        viewModelScope.launch {
-            try {
-                val snapshot = db.collection("users").get().await()
-                val filter = _selectedFilter.value
-                Log.d("Leaderboard", "Filter selected: $filter")
-
-                val sortedList = snapshot.documents.mapNotNull { doc ->
-                    val uid = doc.id
+    private fun startCommunityListener() {
+        communityListener = db.collection("users")
+            .orderBy("score", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot == null) return@addSnapshotListener
+                _communityUsers.value = snapshot.documents.mapNotNull { doc ->
                     val name = doc.getString("fullName") ?: return@mapNotNull null
-                    val profileImageUrl = doc.getString("profileImageUrl")
-                    val score = when (filter) {
-                        FilterType.ALL_TIME -> doc.getLong("score")?.toInt() ?: 0
-                        FilterType.MONTHLY -> doc.getLong("monthlyScore")?.toInt() ?: 0
-                        FilterType.WEEKLY -> doc.getLong("weeklyScore")?.toInt() ?: 0
-                    }
-                    Triple(uid, name, UserScore(uid, name, score, profileImageUrl))
-                }.sortedByDescending { it.third.score }
-
-                val userScoreList = sortedList.mapIndexed { index, (_, _, scoreData) ->
-                    val doc = snapshot.documents.find { it.id == scoreData.uid }
-                    val previousRanksMap = doc?.get("previousRanks") as? Map<String, Long> ?: emptyMap()
-                    val prevRank = previousRanksMap[filter.name] ?: -1L
-                    val currentRank = index + 1
-                    val trend = when {
-                        prevRank == -1L -> 0 // no data
-                        currentRank < prevRank -> +1 // moved up
-                        currentRank > prevRank -> -1 // moved down
-                        else -> 0 // same
-                    }
-                    scoreData.copy(trend = trend)
+                    UserScore(
+                        uid = doc.id,
+                        name = name,
+                        score = doc.getLong("score")?.toInt() ?: 0,
+                        profileImageUrl = doc.getString("profileImageUrl")
+                    )
                 }
-
-                _users.value = userScoreList
-
-            } catch (e: Exception) {
-                Log.e("Leaderboard", "Error fetching users", e)
             }
-        }
+    }
+
+    private fun startPanelListener() {
+        panelListener = db.collection("config")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot == null) return@addSnapshotListener
+                val panels = snapshot.documents
+                    .filter { it.id.startsWith("panel") }
+                    .mapNotNull { doc ->
+                        val name = doc.getString("fullName") ?: return@mapNotNull null
+                        PanelScore(
+                            name = name,
+                            score = doc.getLong("score")?.toInt() ?: 0
+                        )
+                    }
+                    .sortedByDescending { it.score }
+                _panelScores.value = panels
+            }
+    }
+
+    fun setCommunityPage(page: Int) { _communityPage.value = page }
+    fun setPanelPage(page: Int) { _panelPage.value = page }
+
+    fun communityPageCount(): Int {
+        val total = _communityUsers.value.size
+        return if (total == 0) 1 else (total + pageSize - 1) / pageSize
+    }
+
+    fun panelPageCount(): Int {
+        val total = _panelScores.value.size
+        return if (total == 0) 1 else (total + pageSize - 1) / pageSize
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        communityListener?.remove()
+        panelListener?.remove()
     }
 }

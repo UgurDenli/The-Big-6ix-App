@@ -6,6 +6,105 @@ const cors = require("cors")({ origin: true });
 admin.initializeApp();
 const db = admin.firestore();
 
+const DISCORD_GUILD_ID   = "1204439893036630026"; // The Community
+const DISCORD_REDIRECT   = "https://the-big-6ix.web.app/discord-callback.html";
+
+const YOUTUBE_MEMBER_ROLES = [
+  "1402342200515231764", // YouTube Member
+  "1402342200515231765", // YouTube Member: The Community 🫵
+];
+const PRIVILEGED_ROLES = [
+  "1216816077783302226", // Admin
+  "1204451389665845299", // Moderator
+  "1216899081301917726", // Owner
+  "1379468933114892449", // Dev Man
+];
+
+exports.verifyDiscordRole = functions.https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+
+  const code = req.query.code || (req.body && req.body.code);
+  if (!code) {
+    return res.status(200).json({ success: false, error: "Missing code parameter" });
+  }
+
+  try {
+    // 1. Exchange code for Discord access token
+    const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id:     functions.config().discord.client_id,
+        client_secret: functions.config().discord.client_secret,
+        grant_type:    "authorization_code",
+        code:          code,
+        redirect_uri:  DISCORD_REDIRECT,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (tokenData.error) {
+      return res.status(200).json({
+        success: false,
+        error: tokenData.error_description || tokenData.error,
+        error_code: tokenData.error,
+        used_redirect_uri: DISCORD_REDIRECT,
+      });
+    }
+
+    const accessToken = tokenData.access_token;
+
+    // 2. Get Discord user info
+    const userRes = await fetch("https://discord.com/api/users/@me", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const user = await userRes.json();
+    if (!user.id) {
+      return res.status(200).json({ success: false, error: "Failed to fetch Discord user info" });
+    }
+    const discordId   = user.id;
+    const displayName = user.global_name || user.username;
+
+    // 3. Check guild membership with the user's own token (guilds.members.read scope)
+    const memberRes = await fetch(
+      `https://discord.com/api/users/@me/guilds/${DISCORD_GUILD_ID}/member`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (!memberRes.ok) {
+      return res.status(200).json({
+        success: false,
+        error: "You must be a member of The Big 6ix Discord server to log in.",
+      });
+    }
+
+    // 4. Check YouTube Member role (or privileged role bypass)
+    const memberData = await memberRes.json();
+    const userRoles = memberData.roles || [];
+    const hasAccess =
+      userRoles.some(r => YOUTUBE_MEMBER_ROLES.includes(r)) ||
+      userRoles.some(r => PRIVILEGED_ROLES.includes(r));
+
+    if (!hasAccess) {
+      return res.status(200).json({
+        success: false,
+        error: "You need to be a YouTube channel member to access The Big 6ix app. Join at youtube.com/@TheBig6ix",
+      });
+    }
+
+    // 5. Mint Firebase custom token using Discord user ID
+    const firebaseToken = await admin.auth().createCustomToken(discordId);
+
+    return res.status(200).json({ success: true, token: firebaseToken, name: displayName });
+
+  } catch (e) {
+    console.error("verifyDiscordRole error:", e);
+    return res.status(200).json({ success: false, error: `Server error: ${e.message}` });
+  }
+});
+
 // === YouTube Membership Check ===
 const oAuth2Client = new google.auth.OAuth2(
 functions.config().google.client_id,

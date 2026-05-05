@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "226597039359-4blkb5rlmb4nons3bqt8f67ss2eptcrv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.invenium.thebig6ix",
+            "certificate_hash": "a4ee6c613f92fc112636e644f4d984aa8baa4cd5"
+          }
+        },
+        {
           "client_id": "226597039359-8tm0sggidapnbkf7mcftt45e30g1cg2d.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
@@ -28,6 +36,14 @@
           "android_info": {
             "package_name": "com.invenium.thebig6ix",
             "certificate_hash": "7752ffaf570a0c61539ae62c651166068d53e123"
+          }
+        },
+        {
+          "client_id": "226597039359-htuvsf6mtumg2c21l04pappk3im49r4n.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.invenium.thebig6ix",
+            "certificate_hash": "ef379b194101be4c682519c5e671d76f342bbce7"
           }
         },
         {
@@ -48,10 +64,10 @@
               "client_type": 3
             },
             {
-              "client_id": "226597039359-b5ghjch5jehk78ln6tnsl8cpn2871m1m.apps.googleusercontent.com",
+              "client_id": "226597039359-5pv6lngjqb953bfvv94dnethto4uaddj.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "Reply.TheBig6IX"
+                "bundle_id": "Reply.TheBig6IXx"
               }
             }
           ]

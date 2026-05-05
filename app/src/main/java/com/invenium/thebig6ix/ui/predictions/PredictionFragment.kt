@@ -59,6 +59,7 @@ class PredictionFragment : Fragment() {
                     awayTeam = selectedFixture.awayTeam,
                     homeGoals = homeGoals.toInt(),
                     awayGoals = awayGoals.toInt(),
+                    gameWeek = selectedFixture.gameweek,
                     onSuccess = {
                         Toast.makeText(context, "Prediction submitted!", Toast.LENGTH_SHORT).show()
                     },
@@ -76,7 +77,7 @@ class PredictionFragment : Fragment() {
         binding.updatePointsButton.visibility = if (isAdmin) View.VISIBLE else View.GONE
 
         binding.updatePointsButton.setOnClickListener {
-            viewModel.updatePointsForCompletedFixtures()
+            // scoring handled server-side
         }
     }
 

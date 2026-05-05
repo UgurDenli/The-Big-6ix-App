@@ -9,10 +9,13 @@ import com.invenium.thebig6ix.data.FootballFixture
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.util.Date
 
 class PredictionViewModel : ViewModel() {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
+
+    private val _allFixtures = MutableStateFlow<List<FootballFixture>>(emptyList())
 
     private val _fixtures = MutableStateFlow<List<FootballFixture>>(emptyList())
     val fixtures: StateFlow<List<FootballFixture>> = _fixtures
@@ -22,6 +25,18 @@ class PredictionViewModel : ViewModel() {
 
     private val _mostPickedScoreline = MutableStateFlow<Map<String, Pair<Int, Int>>>(emptyMap())
     val mostPickedScoreline: StateFlow<Map<String, Pair<Int, Int>>> = _mostPickedScoreline
+
+    private val _selectedGameweek = MutableStateFlow<Int?>(null)
+    val selectedGameweek: StateFlow<Int?> = _selectedGameweek
+
+    private val _availableGameweeks = MutableStateFlow<List<Int>>(emptyList())
+    val availableGameweeks: StateFlow<List<Int>> = _availableGameweeks
+
+    private val _adminGameweekOverride = MutableStateFlow<Int?>(null)
+    val adminGameweekOverride: StateFlow<Int?> = _adminGameweekOverride
+
+    val isAdmin: Boolean
+        get() = auth.currentUser?.email == "ugurdenli30@gmail.com"
 
     init {
         fetchFixtures(forceRefresh = true)
@@ -33,9 +48,62 @@ class PredictionViewModel : ViewModel() {
         db.collection("fixtures")
             .get(source)
             .addOnSuccessListener { result ->
-                val list = result.mapNotNull { it.toObject(FootballFixture::class.java) }
-                _fixtures.value = list
+                val list = result.mapNotNull { doc ->
+                    try {
+                        FootballFixture(
+                            id = doc.id,
+                            homeTeam = doc.getString("homeTeam") ?: return@mapNotNull null,
+                            awayTeam = doc.getString("awayTeam") ?: return@mapNotNull null,
+                            date = doc.getString("date") ?: "",
+                            homeTeamGoals = doc.getLong("homeTeamGoals")?.toInt() ?: -1,
+                            awayTeamGoals = doc.getLong("awayTeamGoals")?.toInt() ?: -1,
+                            winner = doc.getString("winner") ?: "",
+                            deadline = doc.getTimestamp("deadline"),
+                            gameweek = doc.getLong("gameweek")?.toInt() ?: 0
+                        )
+                    } catch (e: Exception) { null }
+                }
+                _allFixtures.value = list
+                updateAvailableGameweeks(list)
             }
+    }
+
+    private fun updateAvailableGameweeks(fixtures: List<FootballFixture>) {
+        val now = Date()
+        val upcoming = fixtures
+            .filter { it.deadline?.toDate()?.after(now) == true }
+            .map { it.gameweek }
+            .distinct()
+            .sorted()
+
+        _availableGameweeks.value = upcoming
+
+        val override = _adminGameweekOverride.value
+        val target = override
+            ?: upcoming.firstOrNull()
+            ?: fixtures.map { it.gameweek }.distinct().maxOrNull()
+            ?: 0
+        selectGameweek(target)
+    }
+
+    fun selectGameweek(gameweek: Int) {
+        _selectedGameweek.value = gameweek
+        _fixtures.value = _allFixtures.value.filter { it.gameweek == gameweek }
+    }
+
+    fun setAdminGameweekOverride(gameweek: Int?) {
+        _adminGameweekOverride.value = gameweek
+        if (gameweek != null) selectGameweek(gameweek)
+        else updateAvailableGameweeks(_allFixtures.value)
+    }
+
+    fun snapToNext() {
+        val now = Date()
+        val next = _allFixtures.value
+            .filter { it.deadline?.toDate()?.after(now) == true }
+            .minByOrNull { it.deadline!!.toDate() }
+            ?.gameweek
+        if (next != null) setAdminGameweekOverride(next)
     }
 
     fun refreshFixtures() {
@@ -49,7 +117,7 @@ class PredictionViewModel : ViewModel() {
         awayTeam: String,
         homeGoals: Int,
         awayGoals: Int,
-        gameWeek: Int = 1,
+        gameWeek: Int,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -75,7 +143,6 @@ class PredictionViewModel : ViewModel() {
                         "scoredPoints" to false,
                         "gameweek" to gameWeek
                     )
-
                     predictionsRef.add(prediction).await()
                     fetchUserPredictions(forceRefresh = true)
                     onSuccess()
@@ -122,8 +189,4 @@ class PredictionViewModel : ViewModel() {
         val homeGoals: Int,
         val awayGoals: Int
     )
-
-    fun updatePointsForCompletedFixtures() {
-        // Optional scoring logic here
-    }
 }

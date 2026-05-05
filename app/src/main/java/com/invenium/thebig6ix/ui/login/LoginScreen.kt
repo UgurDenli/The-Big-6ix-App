@@ -1,21 +1,22 @@
 package com.invenium.thebig6ix.ui.login
 
-import android.app.Activity
-import android.content.Context
+import android.content.Intent
 import android.net.Uri
-import android.util.Log
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.ComponentActivity
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -23,215 +24,234 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.android.gms.auth.api.signin.*
-import com.google.android.gms.common.api.ApiException
-import com.google.android.gms.common.api.Scope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.firestore.SetOptions
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.invenium.thebig6ix.R
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
+
+private const val DISCORD_OAUTH_URL =
+    "https://discord.com/oauth2/authorize" +
+    "?client_id=1402215849183674478" +
+    "&redirect_uri=https%3A%2F%2Fthe-big-6ix.web.app%2Fdiscord-callback.html" +
+    "&response_type=code" +
+    "&scope=identify%20guilds%20guilds.members.read"
+
+private val Gold       = Color(0xFFFFD700)
+private val Discord    = Color(0xFF5865F2)
+private val CardBg     = Color(0xFF111111)
 
 @Composable
-fun LoginScreen(onLoginSuccess: () -> Unit) {
+fun LoginScreen(onLoginSuccess: (needsOnboarding: Boolean) -> Unit) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val auth = remember { FirebaseAuth.getInstance() }
+    val activity = context as ComponentActivity
+    val viewModel: DiscordAuthViewModel = viewModel(viewModelStoreOwner = activity)
+    val loginState by viewModel.loginState.collectAsState()
 
-    val gso = remember {
-        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(context.getString(com.invenium.thebig6ix.R.string.default_web))
-            .requestServerAuthCode(context.getString(com.invenium.thebig6ix.R.string.default_web), true)
-            .requestEmail()
-            .requestProfile()
-            .requestScopes(
-                Scope("https://www.googleapis.com/auth/youtube.channel-memberships.creator"),
-                Scope("https://www.googleapis.com/auth/youtube.readonly")
-            )
-            .build()
-    }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
-
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                val account = task.getResult(ApiException::class.java)
-                val idToken = account.idToken
-                val authCode = account.serverAuthCode
-
-                Log.d("GrantedScopes", account.grantedScopes.joinToString("\n"))
-
-                if (!idToken.isNullOrEmpty() && !authCode.isNullOrEmpty()) {
-                    val credential = GoogleAuthProvider.getCredential(idToken, null)
-                    auth.signInWithCredential(credential).addOnSuccessListener {
-                        coroutineScope.launch {
-                            verifyYouTubeMembershipViaCloudFunction(
-                                context = context,
-                                authCode = authCode,
-                                onSuccess = onLoginSuccess,
-                                onFailure = {
-                                    FirebaseAuth.getInstance().signOut()
-                                    Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-                                }
-                            )
-                        }
-                    }
-                } else {
-                    Toast.makeText(context, "Missing token or code", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: ApiException) {
-                Log.e("LoginScreen", "Google SignIn failed", e)
-                Toast.makeText(context, "Google Sign-In failed", Toast.LENGTH_SHORT).show()
+    LaunchedEffect(loginState) {
+        when (val state = loginState) {
+            is DiscordAuthViewModel.LoginState.Success -> {
+                viewModel.clearState()
+                onLoginSuccess(state.needsOnboarding)
             }
+            is DiscordAuthViewModel.LoginState.Error -> {
+                errorMessage = state.message
+                viewModel.clearState()
+            }
+            else -> {}
         }
     }
 
+    errorMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            containerColor = Color(0xFF1A1A1A),
+            titleContentColor = Color(0xFFFFD700),
+            textContentColor = Color(0xFFCCCCCC),
+            title = { Text("Access Denied", fontFamily = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))) },
+            text = { Text(msg, fontSize = 14.sp, lineHeight = 20.sp) },
+            confirmButton = {
+                TextButton(onClick = { errorMessage = null }) {
+                    Text("OK", color = Color(0xFFFFD700), fontFamily = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold)))
+                }
+            }
+        )
+    }
+
+    val isLoading = loginState is DiscordAuthViewModel.LoginState.Loading
     val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, weight = FontWeight.Bold))
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color.Black
+    // Subtle pulse animation on the glow when idle
+    val pulse = rememberInfiniteTransition(label = "pulse")
+    val glowScale by pulse.animateFloat(
+        initialValue = 1f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
     ) {
+        // Subtle radial glow behind the logo
+        Box(
+            modifier = Modifier
+                .size(480.dp)
+                .scale(glowScale)
+                .align(Alignment.TopCenter)
+                .offset(y = (-40).dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0x1AFFD700),
+                            Color(0x0AFFD700),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
+                .padding(horizontal = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Move logo to top
-            Column(
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Logo badge
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 100.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .size(160.dp)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(Color(0x26FFD700), Color.Transparent)
+                        ),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_tbsix),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .width(300.dp)
-                        .height(80.dp)
+                    modifier = Modifier.size(130.dp)
                 )
             }
 
-            // Add yellow "The Big 6ix" text
+            Spacer(modifier = Modifier.height(20.dp))
+
             Text(
-                text = "The Big 6ix",
+                text = "THE BIG 6IX",
                 fontFamily = ironManFont,
-                fontSize = 84.sp,
-                color = Color(0xFFFFD700), // Yellow
-                modifier = Modifier.padding(bottom = 180.dp)
+                fontSize = 46.sp,
+                letterSpacing = 3.sp,
+                color = Gold,
+                textAlign = TextAlign.Center
             )
 
-            Button(
-                onClick = {
-                    FirebaseAuth.getInstance().signOut()
-                    googleSignInClient.revokeAccess().addOnCompleteListener {
-                        launcher.launch(googleSignInClient.signInIntent)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                shape = RoundedCornerShape(12.dp),
+            Spacer(modifier = Modifier.height(8.dp))
 
+            Text(
+                text = "PREDICTIONS LEAGUE",
+                fontFamily = ironManFont,
+                fontSize = 14.sp,
+                letterSpacing = 4.sp,
+                color = Color(0xFF888888),
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.weight(1.2f))
+
+            // Membership notice
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    "Sign in with Google",
-                    color = Color.Black,
-                    fontFamily = ironManFont,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 32.sp,
-
+                    text = "Sign in with your Discord account to access the Predictions League. You must be a member of The Big 6ix Discord server.",
+                    color = Color(0xFF666666),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                "Privacy Policy",
-                modifier = Modifier.clickable {
-                    val url = "https://thebig6ix.co.uk/the-big-6ix-privacy-policy/"
-                    CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
-                    Modifier.padding(bottom = 180.dp)
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Discord sign-in button
+            Button(
+                onClick = {
+                    if (!isLoading) {
+                        val customTabIntent = CustomTabsIntent.Builder().build()
+                        customTabIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        customTabIntent.launchUrl(context, Uri.parse(DISCORD_OAUTH_URL))
+                    }
                 },
-                color = Color.White,
-                fontFamily = ironManFont,
-                fontSize = 32.sp,
-
-
-            )
-        }
-    }
-}
-
-suspend fun verifyYouTubeMembershipViaCloudFunction(
-    context: Context,
-    authCode: String,
-    onSuccess: () -> Unit,
-    onFailure: (String) -> Unit
-) = withContext(Dispatchers.IO) {
-    try {
-        val url = URL("https://us-central1-the-big-6ix.cloudfunctions.net/exchangeAuthCodeForTokenAndCheckMembership")
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json")
-            doOutput = true
-        }
-
-        val jsonBody = JSONObject().put("authCode", authCode).toString()
-        OutputStreamWriter(conn.outputStream).use { it.write(jsonBody) }
-
-        val response = conn.inputStream.bufferedReader().use { it.readText() }
-        val code = conn.responseCode
-        conn.disconnect()
-
-        if (code == 200) {
-            val firebaseUser = FirebaseAuth.getInstance().currentUser
-            firebaseUser?.let { user ->
-                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                val userDoc = db.collection("users").document(user.uid)
-
-                val snapshot = userDoc.get().await()
-
-                if (snapshot.exists()) {
-                    // 🔒 Existing user — merge only allowed fields (no score fields)
-                    val updateData = mapOf(
-                        "email" to user.email,
-                        "fullName" to (user.displayName ?: "")
+                colors = ButtonDefaults.buttonColors(containerColor = Discord),
+                shape = RoundedCornerShape(12.dp),
+                enabled = !isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.dp
                     )
-                    userDoc.set(updateData, SetOptions.merge())
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        "Signing in…",
+                        color = Color.White,
+                        fontFamily = ironManFont,
+                        fontSize = 16.sp
+                    )
                 } else {
-                    // 🆕 New user — safe to create full user doc with scores
-                    val newUserData = mapOf(
-                        "email" to user.email,
-                        "fullName" to (user.displayName ?: ""),
-                        "score" to 0,
-                        "weeklyScore" to 0,
-                        "monthlyScore" to 0
+                    // Discord "D" wordmark as styled text
+                    Text(
+                        "⊕",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 18.sp,
+                        modifier = Modifier.padding(end = 10.dp)
                     )
-                    userDoc.set(newUserData)
+                    Text(
+                        "Sign in with Discord",
+                        color = Color.White,
+                        fontFamily = ironManFont,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        letterSpacing = 0.5.sp
+                    )
                 }
             }
 
-            withContext(Dispatchers.Main) { onSuccess() }
+            Spacer(modifier = Modifier.height(20.dp))
 
-        } else {
-            val message = JSONObject(response).optString("message", "Access denied")
-            withContext(Dispatchers.Main) { onFailure(message) }
+            Text(
+                "Privacy Policy",
+                modifier = Modifier
+                    .clickable {
+                        CustomTabsIntent.Builder().build()
+                            .launchUrl(context, Uri.parse("https://thebig6ix.co.uk/the-big-6ix-privacy-policy/"))
+                    }
+                    .padding(8.dp),
+                color = Color(0xFF555555),
+                fontFamily = ironManFont,
+                fontSize = 12.sp,
+                letterSpacing = 1.sp
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
-    } catch (e: Exception) {
-        Log.e("CloudFunction", "Error: ${e.message}", e)
-        withContext(Dispatchers.Main) { onFailure("Membership check failed: ${e.message}") }
     }
 }

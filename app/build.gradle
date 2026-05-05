@@ -19,10 +19,15 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("D:/Games/Metal Gear Solid/my-key.jks")
-            storePassword "Kingsway123!"
-            keyAlias "thebig6ixkey"
-            keyPassword "Kingsway123!"
+            def localProps = new Properties()
+            def localPropsFile = rootProject.file('local.properties')
+            if (localPropsFile.exists()) {
+                localPropsFile.withInputStream { localProps.load(it) }
+            }
+            storeFile rootProject.file('my-release-key.jks')
+            storePassword localProps.getProperty('KEYSTORE_PASSWORD')
+            keyAlias localProps.getProperty('KEY_ALIAS')
+            keyPassword localProps.getProperty('KEY_PASSWORD')
         }
     }
 
@@ -73,7 +78,7 @@ dependencies {
 
     implementation 'com.google.firebase:firebase-auth-ktx'
     implementation 'com.google.firebase:firebase-firestore-ktx'
-    implementation 'com.google.android.gms:play-services-auth:21.3.0'
+    implementation 'androidx.browser:browser:1.8.0'
 
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
@@ -82,7 +87,6 @@ dependencies {
 
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2"
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.2"
-    implementation 'com.google.android.gms:play-services-games:23.2.0'
     implementation "com.google.accompanist:accompanist-swiperefresh:0.30.1"
     implementation("com.google.firebase:firebase-storage-ktx")
 
@@ -93,11 +97,7 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
     implementation "androidx.work:work-runtime-ktx:2.9.0"
-// Use an older BOM with 1.9.0 support
-    implementation platform("com.google.firebase:firebase-bom:32.7.0")
-
-// These will match a Kotlin 1.9.x-compatible version of firebase-auth
-    implementation 'com.google.firebase:firebase-auth-ktx'
+    implementation "androidx.compose.material:material-icons-extended:1.5.4"
 
     implementation 'com.squareup.retrofit2:retrofit:2.9.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
