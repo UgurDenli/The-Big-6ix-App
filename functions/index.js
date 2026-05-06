@@ -266,53 +266,62 @@ exports.manualCalculatePoints = functions.https.onRequest(async (req, res) => {
       const predictionsRef = db.collection("predictions");
       const fixturesRef = db.collection("fixtures");
       const usersRef = db.collection("users");
-      const [snapNum, snapStr] = await Promise.all([
-        fixturesRef.where("gameweek", "==", gameweek).get(),
-        fixturesRef.where("gameweek", "==", String(gameweek)).get(),
+
+      // Query predictions by gameweek (try both number and string)
+      const [predSnapNum, predSnapStr] = await Promise.all([
+        predictionsRef.where("gameweek", "==", gameweek).get(),
+        predictionsRef.where("gameweek", "==", String(gameweek)).get(),
       ]);
-      const fixtureIds = new Set();
-      const fixtureDocs = [...snapNum.docs, ...snapStr.docs].filter(d => {
-        if (fixtureIds.has(d.id)) return false;
-        fixtureIds.add(d.id);
+      const seenPredIds = new Set();
+      const predDocs = [...predSnapNum.docs, ...predSnapStr.docs].filter(d => {
+        if (seenPredIds.has(d.id)) return false;
+        seenPredIds.add(d.id);
         return true;
       });
+
+      // Cache fixture lookups
+      const fixtureCache = {};
       let rescored = 0;
 
-      for (const fixtureDoc of fixtureDocs) {
-        const fixture = fixtureDoc.data();
-        const fixtureId = fixtureDoc.id;
+      for (const predDoc of predDocs) {
+        const pred = predDoc.data();
+        const fixtureId = pred.fixtureId;
+        if (!fixtureId) continue;
+
+        if (!fixtureCache[fixtureId]) {
+          const fDoc = await fixturesRef.doc(fixtureId).get();
+          fixtureCache[fixtureId] = fDoc.exists ? fDoc.data() : null;
+        }
+        const fixture = fixtureCache[fixtureId];
+        if (!fixture) continue;
+
         const fixtureHome = Number(fixture.homeTeamGoals);
         const fixtureAway = Number(fixture.awayTeamGoals);
         if (isNaN(fixtureHome) || fixtureHome < 0 || isNaN(fixtureAway) || fixtureAway < 0) continue;
 
         const actualOutcome = fixtureHome === fixtureAway ? "draw" : fixtureHome > fixtureAway ? "home" : "away";
-        const predsSnap = await predictionsRef.where("fixtureId", "==", fixtureId).get();
+        const prevPoints = Number(pred.awardedPoints ?? 0);
+        const predHome = Number(pred.homeTeamGoals);
+        const predAway = Number(pred.awayTeamGoals);
+        const predictedOutcome = predHome === predAway ? "draw" : predHome > predAway ? "home" : "away";
 
-        for (const predDoc of predsSnap.docs) {
-          const pred = predDoc.data();
-          const prevPoints = Number(pred.awardedPoints ?? 0);
-          const predHome = Number(pred.homeTeamGoals);
-          const predAway = Number(pred.awayTeamGoals);
-          const predictedOutcome = predHome === predAway ? "draw" : predHome > predAway ? "home" : "away";
+        let newPoints = 0;
+        if (predHome === fixtureHome && predAway === fixtureAway) newPoints = 3;
+        else if (predictedOutcome === actualOutcome) newPoints = 1;
+        if (pred.captainUsed && newPoints > 0) newPoints *= 2;
 
-          let newPoints = 0;
-          if (predHome === fixtureHome && predAway === fixtureAway) newPoints = 3;
-          else if (predictedOutcome === actualOutcome) newPoints = 1;
-          if (pred.captainUsed && newPoints > 0) newPoints *= 2;
+        const diff = newPoints - prevPoints;
+        console.log(`Rescore GW${gameweek} fixture ${fixtureId}: user ${pred.userId} predicted ${predHome}-${predAway} vs actual ${fixtureHome}-${fixtureAway} → ${prevPoints}→${newPoints}`);
 
-          const diff = newPoints - prevPoints;
-          console.log(`Rescore GW${gameweek} ${fixtureId}: user ${pred.userId} ${prevPoints}→${newPoints}`);
-
-          await predDoc.ref.update({ scoredPoints: true, isCorrect: newPoints > 0, awardedPoints: newPoints });
-          if (diff !== 0) {
-            await usersRef.doc(pred.userId).update({
-              score: admin.firestore.FieldValue.increment(diff),
-              weeklyScore: admin.firestore.FieldValue.increment(diff),
-              monthlyScore: admin.firestore.FieldValue.increment(diff),
-            });
-          }
-          rescored++;
+        await predDoc.ref.update({ scoredPoints: true, isCorrect: newPoints > 0, awardedPoints: newPoints });
+        if (diff !== 0) {
+          await usersRef.doc(pred.userId).update({
+            score: admin.firestore.FieldValue.increment(diff),
+            weeklyScore: admin.firestore.FieldValue.increment(diff),
+            monthlyScore: admin.firestore.FieldValue.increment(diff),
+          });
         }
+        rescored++;
       }
 
       await updateGameweekWinner(gameweek);
