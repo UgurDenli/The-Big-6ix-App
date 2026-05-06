@@ -266,10 +266,19 @@ exports.manualCalculatePoints = functions.https.onRequest(async (req, res) => {
       const predictionsRef = db.collection("predictions");
       const fixturesRef = db.collection("fixtures");
       const usersRef = db.collection("users");
-      const fixtureSnap = await fixturesRef.where("gameweek", "==", gameweek).get();
+      const [snapNum, snapStr] = await Promise.all([
+        fixturesRef.where("gameweek", "==", gameweek).get(),
+        fixturesRef.where("gameweek", "==", String(gameweek)).get(),
+      ]);
+      const fixtureIds = new Set();
+      const fixtureDocs = [...snapNum.docs, ...snapStr.docs].filter(d => {
+        if (fixtureIds.has(d.id)) return false;
+        fixtureIds.add(d.id);
+        return true;
+      });
       let rescored = 0;
 
-      for (const fixtureDoc of fixtureSnap.docs) {
+      for (const fixtureDoc of fixtureDocs) {
         const fixture = fixtureDoc.data();
         const fixtureId = fixtureDoc.id;
         const fixtureHome = Number(fixture.homeTeamGoals);
