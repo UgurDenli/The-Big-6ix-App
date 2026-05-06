@@ -256,9 +256,60 @@ exports.calculatePoints = functions.pubsub.schedule("every 5 minutes").onRun(asy
 await calculatePoints();
 });
 
-// === Manual trigger (Postman or browser)
+// === Manual trigger — also handles rescore via ?rescore=true&gameweek=35
 exports.manualCalculatePoints = functions.https.onRequest(async (req, res) => {
   try {
+    const rescore = req.query.rescore === "true";
+    const gameweek = Number(req.query.gameweek);
+
+    if (rescore && gameweek) {
+      const predictionsRef = db.collection("predictions");
+      const fixturesRef = db.collection("fixtures");
+      const usersRef = db.collection("users");
+      const fixtureSnap = await fixturesRef.where("gameweek", "==", gameweek).get();
+      let rescored = 0;
+
+      for (const fixtureDoc of fixtureSnap.docs) {
+        const fixture = fixtureDoc.data();
+        const fixtureId = fixtureDoc.id;
+        const fixtureHome = Number(fixture.homeTeamGoals);
+        const fixtureAway = Number(fixture.awayTeamGoals);
+        if (isNaN(fixtureHome) || fixtureHome < 0 || isNaN(fixtureAway) || fixtureAway < 0) continue;
+
+        const actualOutcome = fixtureHome === fixtureAway ? "draw" : fixtureHome > fixtureAway ? "home" : "away";
+        const predsSnap = await predictionsRef.where("fixtureId", "==", fixtureId).get();
+
+        for (const predDoc of predsSnap.docs) {
+          const pred = predDoc.data();
+          const prevPoints = Number(pred.awardedPoints ?? 0);
+          const predHome = Number(pred.homeTeamGoals);
+          const predAway = Number(pred.awayTeamGoals);
+          const predictedOutcome = predHome === predAway ? "draw" : predHome > predAway ? "home" : "away";
+
+          let newPoints = 0;
+          if (predHome === fixtureHome && predAway === fixtureAway) newPoints = 3;
+          else if (predictedOutcome === actualOutcome) newPoints = 1;
+          if (pred.captainUsed && newPoints > 0) newPoints *= 2;
+
+          const diff = newPoints - prevPoints;
+          console.log(`Rescore GW${gameweek} ${fixtureId}: user ${pred.userId} ${prevPoints}→${newPoints}`);
+
+          await predDoc.ref.update({ scoredPoints: true, isCorrect: newPoints > 0, awardedPoints: newPoints });
+          if (diff !== 0) {
+            await usersRef.doc(pred.userId).update({
+              score: admin.firestore.FieldValue.increment(diff),
+              weeklyScore: admin.firestore.FieldValue.increment(diff),
+              monthlyScore: admin.firestore.FieldValue.increment(diff),
+            });
+          }
+          rescored++;
+        }
+      }
+
+      await updateGameweekWinner(gameweek);
+      return res.status(200).send(`Rescored ${rescored} predictions for GW${gameweek}.`);
+    }
+
     await calculatePoints();
     res.status(200).send("Manual point calculation completed.");
   } catch (e) {
