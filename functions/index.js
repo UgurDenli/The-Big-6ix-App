@@ -140,88 +140,115 @@ try {
 });
 
 // === Shared Scoring Logic ===
-const calculatePoints = async () => {
-const fixturesSnap = await db.collection("fixtures").get();
-const predictionsRef = db.collection("predictions");
-const usersRef = db.collection("users");
+const scoreFixturePredictions = async (fixtureDoc, predictionsRef, usersRef, scoredGameweeks) => {
+  const fixture = fixtureDoc.data();
+  const fixtureId = fixtureDoc.id;
 
-for (const fixtureDoc of fixturesSnap.docs) {
-const fixture = fixtureDoc.data();
-const fixtureId = fixtureDoc.id;
+  const fixtureHome = Number(fixture.homeTeamGoals);
+  const fixtureAway = Number(fixture.awayTeamGoals);
 
-if (fixture.homeTeamGoals < 0 || fixture.awayTeamGoals < 0) continue;
+  if (isNaN(fixtureHome) || isNaN(fixtureAway) || fixtureHome < 0 || fixtureAway < 0) return;
 
-const actualOutcome =
-  fixture.homeTeamGoals === fixture.awayTeamGoals
-    ? "draw"
-    : fixture.homeTeamGoals > fixture.awayTeamGoals
-    ? "home"
-    : "away";
+  const actualOutcome =
+    fixtureHome === fixtureAway ? "draw" : fixtureHome > fixtureAway ? "home" : "away";
 
-const predictionsSnap = await predictionsRef
-  .where("fixtureId", "==", fixtureId)
-  .where("scoredPoints", "==", false)
-  .get();
+  console.log(`Scoring fixture ${fixtureId}: ${fixtureHome}-${fixtureAway} (${actualOutcome})`);
 
-for (const predictionDoc of predictionsSnap.docs) {
-  const prediction = predictionDoc.data();
-  const userRef = usersRef.doc(prediction.userId);
-  const userDoc = await userRef.get();
+  const predictionsSnap = await predictionsRef
+    .where("fixtureId", "==", fixtureId)
+    .where("scoredPoints", "==", false)
+    .get();
 
-  const predictedOutcome =
-    prediction.homeTeamGoals === prediction.awayTeamGoals
-      ? "draw"
-      : prediction.homeTeamGoals > prediction.awayTeamGoals
-      ? "home"
-      : "away";
+  for (const predictionDoc of predictionsSnap.docs) {
+    const prediction = predictionDoc.data();
+    const userRef = usersRef.doc(prediction.userId);
+    const userDoc = await userRef.get();
 
-  let points = 0;
-  if (
-    prediction.homeTeamGoals === fixture.homeTeamGoals &&
-    prediction.awayTeamGoals === fixture.awayTeamGoals
-  ) {
-    points = 3;
-  } else if (predictedOutcome === actualOutcome) {
-    points = 1;
-  }
+    const predHome = Number(prediction.homeTeamGoals);
+    const predAway = Number(prediction.awayTeamGoals);
+    const predictedOutcome =
+      predHome === predAway ? "draw" : predHome > predAway ? "home" : "away";
 
-  console.log(`User ${prediction.userId} earned ${points} pts for fixture ${fixtureId}`);
+    let points = 0;
+    if (predHome === fixtureHome && predAway === fixtureAway) {
+      points = 3;
+    } else if (predictedOutcome === actualOutcome) {
+      points = 1;
+    }
 
-  await predictionDoc.ref.update({
-    scoredPoints: true,
-    isCorrect: points > 0,
-    awardedPoints: points,
-  });
+    if (prediction.captainUsed && points > 0) points *= 2;
 
-  await userRef.update({
-    score: admin.firestore.FieldValue.increment(points),
-    weeklyScore: admin.firestore.FieldValue.increment(points),
-    monthlyScore: admin.firestore.FieldValue.increment(points),
-  });
+    console.log(`  User ${prediction.userId} predicted ${predHome}-${predAway} → ${points} pts`);
 
-  // 🔔 Push Notification
-  const userData = userDoc.data();
-  const token = userData?.fcmToken;
+    await predictionDoc.ref.update({ scoredPoints: true, isCorrect: points > 0, awardedPoints: points });
+    await userRef.update({
+      score: admin.firestore.FieldValue.increment(points),
+      weeklyScore: admin.firestore.FieldValue.increment(points),
+      monthlyScore: admin.firestore.FieldValue.increment(points),
+    });
 
-  if (token) {
-    const payload = {
-      notification: {
-        title: `You earned ${points} point${points !== 1 ? "s" : ""}!`,
-        body: `Your new total is updating...`,
-        sound: "default"
-      },
-      token: token,
-    };
+    if (scoredGameweeks) scoredGameweeks.add(fixture.gameweek);
 
-    try {
-      await admin.messaging().send(payload);
-      console.log(`Notification sent to ${prediction.userId}`);
-    } catch (e) {
-      console.error(`Failed to send notification to ${prediction.userId}`, e.message);
+    const token = userDoc.data()?.fcmToken;
+    if (token) {
+      try {
+        await admin.messaging().send({
+          notification: {
+            title: `You earned ${points} point${points !== 1 ? "s" : ""}!`,
+            body: "Your new total is updating...",
+            sound: "default",
+          },
+          token,
+        });
+      } catch (e) {
+        console.error(`FCM error for ${prediction.userId}:`, e.message);
+      }
     }
   }
-}
-}
+};
+
+const calculatePoints = async () => {
+  const fixturesSnap = await db.collection("fixtures").get();
+  const predictionsRef = db.collection("predictions");
+  const usersRef = db.collection("users");
+  const scoredGameweeks = new Set();
+
+  for (const fixtureDoc of fixturesSnap.docs) {
+    await scoreFixturePredictions(fixtureDoc, predictionsRef, usersRef, scoredGameweeks);
+  }
+
+  for (const gw of scoredGameweeks) {
+    await updateGameweekWinner(gw);
+  }
+};
+
+const updateGameweekWinner = async (gameweek) => {
+  const gwPreds = await db.collection("predictions")
+    .where("gameweek", "==", gameweek)
+    .where("scoredPoints", "==", true)
+    .get();
+
+  const pointsByUser = {};
+  for (const doc of gwPreds.docs) {
+    const { userId, awardedPoints = 0 } = doc.data();
+    pointsByUser[userId] = (pointsByUser[userId] || 0) + awardedPoints;
+  }
+
+  const sorted = Object.entries(pointsByUser).sort(([, a], [, b]) => b - a);
+  if (sorted.length === 0) return;
+
+  const [topUserId, topPoints] = sorted[0];
+  const userDoc = await db.collection("users").doc(topUserId).get();
+  const name = userDoc.data()?.fullName || "Unknown";
+
+  await db.collection("gameweekWinners").doc(String(gameweek)).set({
+    userId: topUserId,
+    name,
+    points: topPoints,
+    gameweek,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  console.log(`GW ${gameweek} winner: ${name} with ${topPoints} pts`);
 };
 
 // === Scheduled: every 5 minutes
@@ -231,11 +258,75 @@ await calculatePoints();
 
 // === Manual trigger (Postman or browser)
 exports.manualCalculatePoints = functions.https.onRequest(async (req, res) => {
-try {
-await calculatePoints();
-res.status(200).send("Manual point calculation completed.");
-} catch (e) {
-console.error("Manual calculation error:", e);
-res.status(500).send("Error during manual scoring.");
-}
+  try {
+    await calculatePoints();
+    res.status(200).send("Manual point calculation completed.");
+  } catch (e) {
+    console.error("Manual calculation error:", e);
+    res.status(500).send("Error during manual scoring.");
+  }
+});
+
+// === Rescore a gameweek (fixes predictions already marked scoredPoints:true with wrong points)
+// POST body: { "gameweek": 5 }
+exports.rescoreGameweek = functions.https.onRequest(async (req, res) => {
+  try {
+    const gameweek = Number(req.body?.gameweek ?? req.query?.gameweek);
+    if (!gameweek || isNaN(gameweek)) {
+      return res.status(400).send("Missing or invalid gameweek parameter.");
+    }
+
+    const db2 = admin.firestore();
+    const predictionsRef = db2.collection("predictions");
+    const fixturesRef = db2.collection("fixtures");
+    const usersRef = db2.collection("users");
+
+    // Get all fixtures for this gameweek that have actual goals set
+    const fixtureSnap = await fixturesRef.where("gameweek", "==", gameweek).get();
+    let rescored = 0;
+
+    for (const fixtureDoc of fixtureSnap.docs) {
+      const fixture = fixtureDoc.data();
+      const fixtureId = fixtureDoc.id;
+      const fixtureHome = Number(fixture.homeTeamGoals);
+      const fixtureAway = Number(fixture.awayTeamGoals);
+      if (isNaN(fixtureHome) || fixtureHome < 0 || isNaN(fixtureAway) || fixtureAway < 0) continue;
+
+      const actualOutcome = fixtureHome === fixtureAway ? "draw" : fixtureHome > fixtureAway ? "home" : "away";
+
+      // Rescore ALL predictions for this fixture (both scored and unscored)
+      const predsSnap = await predictionsRef.where("fixtureId", "==", fixtureId).get();
+      for (const predDoc of predsSnap.docs) {
+        const pred = predDoc.data();
+        const prevPoints = Number(pred.awardedPoints ?? 0);
+        const predHome = Number(pred.homeTeamGoals);
+        const predAway = Number(pred.awayTeamGoals);
+        const predictedOutcome = predHome === predAway ? "draw" : predHome > predAway ? "home" : "away";
+
+        let newPoints = 0;
+        if (predHome === fixtureHome && predAway === fixtureAway) newPoints = 3;
+        else if (predictedOutcome === actualOutcome) newPoints = 1;
+        if (pred.captainUsed && newPoints > 0) newPoints *= 2;
+
+        const diff = newPoints - prevPoints;
+        console.log(`Rescore GW${gameweek} fixture ${fixtureId}: user ${pred.userId} ${prevPoints}→${newPoints} (diff ${diff})`);
+
+        await predDoc.ref.update({ scoredPoints: true, isCorrect: newPoints > 0, awardedPoints: newPoints });
+        if (diff !== 0) {
+          await usersRef.doc(pred.userId).update({
+            score: admin.firestore.FieldValue.increment(diff),
+            weeklyScore: admin.firestore.FieldValue.increment(diff),
+            monthlyScore: admin.firestore.FieldValue.increment(diff),
+          });
+        }
+        rescored++;
+      }
+    }
+
+    await updateGameweekWinner(gameweek);
+    res.status(200).send(`Rescored ${rescored} predictions for GW${gameweek}.`);
+  } catch (e) {
+    console.error("rescoreGameweek error:", e);
+    res.status(500).send(`Error: ${e.message}`);
+  }
 });
