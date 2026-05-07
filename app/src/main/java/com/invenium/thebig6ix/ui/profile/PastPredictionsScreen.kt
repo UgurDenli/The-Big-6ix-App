@@ -1,9 +1,13 @@
 package com.invenium.thebig6ix.ui.profile
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -14,13 +18,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.background
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.invenium.thebig6ix.R
 import kotlinx.coroutines.tasks.await
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val Gold    = Color(0xFFFFD700)
+private val Dim     = Color(0xFF888888)
+private val CardBg  = Color(0xFF111111)
+private val Orange  = Color(0xFFFFA500)
+private val Red     = Color(0xFFF44336)
+
+private data class PastPrediction(
+    val homeTeam: String,
+    val awayTeam: String,
+    val predictedHome: Int,
+    val predictedAway: Int,
+    val actualHome: Int,
+    val actualAway: Int,
+    val awardedPoints: Int,
+    val isScored: Boolean,
+    val gameweek: Int,
+    val wildcardUsed: Boolean,
+    val captainUsed: Boolean
+)
+
 @Composable
 fun PastPredictionsScreen(userId: String? = null) {
     val auth = FirebaseAuth.getInstance()
@@ -28,95 +51,267 @@ fun PastPredictionsScreen(userId: String? = null) {
     val db = FirebaseFirestore.getInstance()
     val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
 
-    var selectedGameweek by remember { mutableStateOf("All") }
-    var expanded by remember { mutableStateOf(false) }
-    var predictions by remember { mutableStateOf(emptyList<Triple<String, String, String>>()) }
-    val allGameweeks = remember { listOf("All") + (1..38).map { "Gameweek $it" } }
+    var allPredictions by remember { mutableStateOf<List<PastPrediction>>(emptyList()) }
+    var availableGameweeks by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var selectedGameweek by remember { mutableStateOf<Int?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(selectedGameweek, resolvedUserId) {
-        val query = db.collection("predictions").whereEqualTo("userId", resolvedUserId)
-        val filteredQuery = if (selectedGameweek != "All") {
-            query.whereEqualTo("gameweek", selectedGameweek.replace("Gameweek ", "").toIntOrNull())
-        } else query
+    LaunchedEffect(resolvedUserId) {
+        isLoading = true
+        val predDocs = db.collection("predictions")
+            .whereEqualTo("userId", resolvedUserId)
+            .get().await()
 
-        val result = filteredQuery.get().await()
-        predictions = result.documents.map {
-            val home = it.getLong("homeTeamGoals") ?: 0
-            val away = it.getLong("awayTeamGoals") ?: 0
-            Triple(
-                it.getString("homeTeam") ?: "Home",
-                "$home : $away",
-                it.getString("awayTeam") ?: "Away"
+        if (predDocs.isEmpty) {
+            isLoading = false
+            return@LaunchedEffect
+        }
+
+        val fixtureIds = predDocs.documents.mapNotNull { it.getString("fixtureId") }.distinct()
+        val fixturesMap = mutableMapOf<String, Pair<Int, Int>>()
+        fixtureIds.chunked(30).forEach { chunk ->
+            db.collection("fixtures")
+                .whereIn(FieldPath.documentId(), chunk)
+                .get().await()
+                .documents.forEach { doc ->
+                    fixturesMap[doc.id] = Pair(
+                        doc.getLong("homeTeamGoals")?.toInt() ?: -1,
+                        doc.getLong("awayTeamGoals")?.toInt() ?: -1
+                    )
+                }
+        }
+
+        val parsed = predDocs.documents.mapNotNull { doc ->
+            val fixtureId = doc.getString("fixtureId") ?: return@mapNotNull null
+            val (actualHome, actualAway) = fixturesMap[fixtureId] ?: Pair(-1, -1)
+            PastPrediction(
+                homeTeam = doc.getString("homeTeam") ?: "Home",
+                awayTeam = doc.getString("awayTeam") ?: "Away",
+                predictedHome = doc.getLong("homeTeamGoals")?.toInt() ?: 0,
+                predictedAway = doc.getLong("awayTeamGoals")?.toInt() ?: 0,
+                actualHome = actualHome,
+                actualAway = actualAway,
+                awardedPoints = doc.getLong("awardedPoints")?.toInt() ?: 0,
+                isScored = actualHome >= 0,
+                gameweek = doc.getLong("gameweek")?.toInt() ?: 0,
+                wildcardUsed = doc.getBoolean("wildcardUsed") ?: false,
+                captainUsed = doc.getBoolean("captainUsed") ?: false
             )
         }
+
+        val gws = parsed.map { it.gameweek }.distinct().sortedDescending()
+        allPredictions = parsed
+        availableGameweeks = gws
+        selectedGameweek = gws.firstOrNull()
+        isLoading = false
     }
 
+    val displayPredictions = allPredictions.filter { it.gameweek == selectedGameweek }
+    val gwTotal = displayPredictions.filter { it.isScored }.sumOf { it.awardedPoints }
+
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                "Past Predictions",
-                color = Color(0xFFFFD700),
-                fontFamily = ironManFont,
-                fontSize = 24.sp
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 20.dp, bottom = 8.dp),
+                contentAlignment = Alignment.Center
             ) {
-                OutlinedTextField(
-                    value = selectedGameweek,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Select Gameweek", color = Color(0xFFFFD700)) },
-                    modifier = Modifier.menuAnchor().fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White, unfocusedTextColor = Color.White,
-                        focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black,
-                        focusedBorderColor = Color(0xFFFFD700), unfocusedBorderColor = Color.Gray,
-                        focusedLabelColor = Color(0xFFFFD700), unfocusedLabelColor = Color.LightGray
-                    )
+                Text(
+                    "PAST PREDICTIONS",
+                    color = Gold,
+                    fontFamily = ironManFont,
+                    fontSize = 20.sp,
+                    letterSpacing = 2.sp
                 )
-                ExposedDropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false },
-                    modifier = androidx.compose.ui.Modifier.background(Color.Black)
-                ) {
-                    allGameweeks.forEach { week ->
-                        DropdownMenuItem(
-                            text = { Text(week, color = Color.White) },
-                            onClick = { selectedGameweek = week; expanded = false }
+            }
+
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Gold)
+                }
+                return@Surface
+            }
+
+            if (availableGameweeks.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No predictions yet.", color = Dim, fontSize = 14.sp)
+                }
+                return@Surface
+            }
+
+            // Gameweek tabs
+            val selectedIndex = availableGameweeks.indexOf(selectedGameweek).coerceAtLeast(0)
+            ScrollableTabRow(
+                selectedTabIndex = selectedIndex,
+                containerColor = Color(0xFF0D0D0D),
+                contentColor = Gold,
+                edgePadding = 0.dp,
+                indicator = { tabPositions ->
+                    if (selectedIndex < tabPositions.size) {
+                        Box(
+                            Modifier
+                                .tabIndicatorOffset(tabPositions[selectedIndex])
+                                .height(2.dp)
+                                .background(Gold)
                         )
                     }
+                },
+                divider = {}
+            ) {
+                availableGameweeks.forEach { gw ->
+                    val sel = selectedGameweek == gw
+                    Tab(
+                        selected = sel,
+                        onClick = { selectedGameweek = gw },
+                        text = {
+                            Text(
+                                "GW $gw",
+                                color = if (sel) Gold else Dim,
+                                fontFamily = ironManFont,
+                                fontSize = 13.sp
+                            )
+                        }
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // GW summary bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Gameweek $selectedGameweek",
+                    color = Dim,
+                    fontFamily = ironManFont,
+                    fontSize = 13.sp
+                )
+                Text(
+                    "$gwTotal pts",
+                    color = Gold,
+                    fontFamily = ironManFont,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
 
-            if (predictions.isEmpty()) {
-                Text("No predictions found.", color = Color.Gray, fontSize = 14.sp)
-            } else {
-                predictions.forEach { (home, score, away) ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .border(BorderStroke(1.dp, Color(0xFFFFD700))),
-                        colors = CardDefaults.cardColors(containerColor = Color.Black)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+            HorizontalDivider(color = Color(0xFF1E1E1E), thickness = 1.dp)
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(displayPredictions) { pred ->
+                    PredictionResultCard(pred, ironManFont)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PredictionResultCard(pred: PastPrediction, ironManFont: FontFamily) {
+    val resultColor = when {
+        !pred.isScored -> Color(0xFF333333)
+        pred.awardedPoints >= 3 -> Gold
+        pred.awardedPoints >= 1 -> Orange
+        else -> Red.copy(alpha = 0.6f)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CardBg),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, resultColor.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    pred.homeTeam,
+                    color = Color.White,
+                    fontFamily = ironManFont,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "${pred.predictedHome} - ${pred.predictedAway}",
+                        color = if (pred.isScored) resultColor else Color.White,
+                        fontFamily = ironManFont,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    if (pred.isScored) {
+                        Text(
+                            "${pred.actualHome} - ${pred.actualAway}",
+                            color = Dim,
+                            fontSize = 11.sp
+                        )
+                    } else {
+                        Text("Pending", color = Dim, fontSize = 11.sp)
+                    }
+                }
+
+                Text(
+                    pred.awayTeam,
+                    color = Color.White,
+                    fontFamily = ironManFont,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End
+                )
+            }
+
+            if (pred.isScored || pred.wildcardUsed || pred.captainUsed) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (pred.captainUsed) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF0D1A2E), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
-                            Text(home, color = Color(0xFFFFD700), fontFamily = ironManFont, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                            Text(score, color = Color.White, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(horizontal = 8.dp))
-                            Text(away, color = Color(0xFFFFD700), fontFamily = ironManFont, fontSize = 14.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                            Text("🎖️ Captain", color = Color(0xFF4B9EFF), fontFamily = ironManFont, fontSize = 10.sp)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    if (pred.wildcardUsed) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF2A1A40), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Text("🃏 Wildcard", color = Color(0xFF9C6ADE), fontFamily = ironManFont, fontSize = 10.sp)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    if (pred.isScored) {
+                        val label = when {
+                            pred.awardedPoints == 0 -> "✗ 0 pts"
+                            pred.awardedPoints >= 5  -> "★ ${pred.awardedPoints} pts"
+                            pred.awardedPoints >= 3  -> "★ ${pred.awardedPoints} pts"
+                            else -> "✓ ${pred.awardedPoints} pt"
+                        }
+                        Box(
+                            modifier = Modifier
+                                .background(resultColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(label, color = resultColor, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                 }

@@ -35,12 +35,73 @@ class PredictionViewModel : ViewModel() {
     private val _adminGameweekOverride = MutableStateFlow<Int?>(null)
     val adminGameweekOverride: StateFlow<Int?> = _adminGameweekOverride
 
+    private val _wildcardAvailable = MutableStateFlow(false)
+    val wildcardAvailable: StateFlow<Boolean> = _wildcardAvailable
+
+    private val _doubleDownAvailable = MutableStateFlow(false)
+    val doubleDownAvailable: StateFlow<Boolean> = _doubleDownAvailable
+
+    private val _captainAvailable = MutableStateFlow(false)
+    val captainAvailable: StateFlow<Boolean> = _captainAvailable
+
     val isAdmin: Boolean
         get() = auth.currentUser?.email == "ugurdenli30@gmail.com"
 
     init {
         fetchFixtures(forceRefresh = true)
         fetchUserPredictions(forceRefresh = true)
+        fetchTokenStatus()
+    }
+
+    private fun fetchTokenStatus() {
+        val userId = auth.currentUser?.uid ?: return
+        db.collection("users").document(userId).get()
+            .addOnSuccessListener { doc ->
+                _wildcardAvailable.value = doc.getBoolean("wildcardAvailable") ?: false
+                _doubleDownAvailable.value = doc.getBoolean("doubleDownAvailable") ?: false
+                _captainAvailable.value = doc.getBoolean("captainAvailable") ?: false
+            }
+    }
+
+    fun submitWildcard(
+        fixtureId: String,
+        homeGoals: Int,
+        awayGoals: Int,
+        gameWeek: Int,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        val userId = auth.currentUser?.uid ?: return onFailure("User not logged in")
+        viewModelScope.launch {
+            try {
+                val existing = db.collection("predictions")
+                    .whereEqualTo("fixtureId", fixtureId)
+                    .whereEqualTo("userId", userId)
+                    .get(Source.SERVER)
+                    .await()
+
+                if (existing.isEmpty) {
+                    onFailure("No prediction found to wildcard.")
+                    return@launch
+                }
+
+                existing.documents.first().reference.update(mapOf(
+                    "homeTeamGoals" to homeGoals,
+                    "awayTeamGoals" to awayGoals,
+                    "wildcardUsed" to true
+                )).await()
+
+                db.collection("users").document(userId)
+                    .update("wildcardAvailable", false)
+                    .await()
+
+                _wildcardAvailable.value = false
+                fetchUserPredictions(forceRefresh = true)
+                onSuccess()
+            } catch (e: Exception) {
+                onFailure("Error: ${e.message}")
+            }
+        }
     }
 
     fun fetchFixtures(forceRefresh: Boolean = false) {
@@ -167,7 +228,13 @@ class PredictionViewModel : ViewModel() {
                     val fixtureId = doc.getString("fixtureId") ?: return@mapNotNull null
                     val home = doc.getLong("homeTeamGoals")?.toInt() ?: return@mapNotNull null
                     val away = doc.getLong("awayTeamGoals")?.toInt() ?: return@mapNotNull null
-                    UserPrediction(fixtureId, home, away)
+                    UserPrediction(
+                        fixtureId,
+                        home,
+                        away,
+                        doc.getBoolean("wildcardUsed") ?: false,
+                        doc.getBoolean("captainUsed") ?: false
+                    )
                 }
                 _userPredictions.value = predictions
                 updateMostPickedScorelines(predictions)
@@ -187,6 +254,39 @@ class PredictionViewModel : ViewModel() {
     data class UserPrediction(
         val fixtureId: String,
         val homeGoals: Int,
-        val awayGoals: Int
+        val awayGoals: Int,
+        val wildcardUsed: Boolean = false,
+        val captainUsed: Boolean = false
     )
+
+    fun setCaptain(
+        fixtureId: String,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        val userId = auth.currentUser?.uid ?: return onFailure("User not logged in")
+        viewModelScope.launch {
+            try {
+                val existing = db.collection("predictions")
+                    .whereEqualTo("fixtureId", fixtureId)
+                    .whereEqualTo("userId", userId)
+                    .get(Source.SERVER)
+                    .await()
+
+                if (existing.isEmpty) {
+                    onFailure("Submit your prediction first, then set your captain.")
+                    return@launch
+                }
+
+                existing.documents.first().reference.update("captainUsed", true).await()
+                db.collection("users").document(userId).update("captainAvailable", false).await()
+
+                _captainAvailable.value = false
+                fetchUserPredictions(forceRefresh = true)
+                onSuccess()
+            } catch (e: Exception) {
+                onFailure("Error: ${e.message}")
+            }
+        }
+    }
 }

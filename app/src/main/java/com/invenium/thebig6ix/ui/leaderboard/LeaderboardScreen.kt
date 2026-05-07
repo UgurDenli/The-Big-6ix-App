@@ -2,12 +2,14 @@ package com.invenium.thebig6ix.ui.leaderboard
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -27,6 +29,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
 import com.invenium.thebig6ix.R
 
+private val Gold = Color(0xFFFFD700)
+
 @Composable
 fun LeaderboardScreen(
     viewModel: LeaderboardViewModel = viewModel(),
@@ -37,6 +41,8 @@ fun LeaderboardScreen(
     val panelScores by viewModel.panelScores.collectAsState()
     val communityPage by viewModel.communityPage.collectAsState()
     val panelPage by viewModel.panelPage.collectAsState()
+    val latestGwWinnerUid by viewModel.latestGwWinnerUid.collectAsState()
+    val latestGwNumber by viewModel.latestGwNumber.collectAsState()
     val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
 
     var selectedTab by remember { mutableStateOf(0) }
@@ -107,6 +113,8 @@ fun LeaderboardScreen(
                             score = user.score,
                             profileImageUrl = user.profileImageUrl,
                             uid = user.uid,
+                            isGwWinner = user.uid == latestGwWinnerUid,
+                            gwNumber = latestGwNumber,
                             ironManFont = ironManFont,
                             onClick = { onViewUserPredictions(user.uid) }
                         )
@@ -135,6 +143,8 @@ fun LeaderboardScreen(
                             score = panel.score,
                             profileImageUrl = null,
                             uid = null,
+                            isGwWinner = false,
+                            gwNumber = null,
                             ironManFont = ironManFont,
                             onClick = {}
                         )
@@ -160,6 +170,8 @@ private fun LeaderboardRow(
     score: Int,
     profileImageUrl: String?,
     uid: String?,
+    isGwWinner: Boolean,
+    gwNumber: Int?,
     ironManFont: FontFamily,
     onClick: () -> Unit
 ) {
@@ -214,13 +226,20 @@ private fun LeaderboardRow(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Text(
-                text = name,
-                color = Color.White,
-                fontFamily = ironManFont,
-                fontSize = 16.sp,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = name, color = Color.White, fontFamily = ironManFont, fontSize = 16.sp)
+                if (isGwWinner && gwNumber != null) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF1A1200), RoundedCornerShape(4.dp))
+                            .border(0.5.dp, Gold.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text("⚡ GW$gwNumber", color = Gold, fontFamily = ironManFont, fontSize = 10.sp)
+                    }
+                }
+            }
 
             Text(
                 text = "$score pts",

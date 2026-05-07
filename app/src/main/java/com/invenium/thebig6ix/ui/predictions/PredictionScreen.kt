@@ -39,9 +39,10 @@ import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-private val Gold   = Color(0xFFFFD700)
-private val CardBg = Color(0xFF111111)
-private val Dim    = Color(0xFF888888)
+private val Gold          = Color(0xFFFFD700)
+private val CardBg        = Color(0xFF111111)
+private val Dim           = Color(0xFF888888)
+private val WildcardColor = Color(0xFF9C6ADE)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("DefaultLocale")
@@ -56,10 +57,56 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
     val selectedGameweek   by viewModel.selectedGameweek.collectAsState()
     val availableGameweeks by viewModel.availableGameweeks.collectAsState()
     val adminOverride      by viewModel.adminGameweekOverride.collectAsState()
+    val wildcardAvailable   by viewModel.wildcardAvailable.collectAsState()
+    val doubleDownAvailable by viewModel.doubleDownAvailable.collectAsState()
+    val captainAvailable    by viewModel.captainAvailable.collectAsState()
 
-    var titleTapCount    by remember { mutableStateOf(0) }
-    var showAdminPanel   by remember { mutableStateOf(false) }
+    var titleTapCount      by remember { mutableStateOf(0) }
+    var showAdminPanel     by remember { mutableStateOf(false) }
     var adminGameweekInput by remember { mutableStateOf("") }
+    var wildcardFixture    by remember { mutableStateOf<FootballFixture?>(null) }
+    var wildcardHome       by remember { mutableStateOf("") }
+    var wildcardAway       by remember { mutableStateOf("") }
+    var showWildcardConfirm by remember { mutableStateOf(false) }
+
+    if (showWildcardConfirm) {
+        AlertDialog(
+            onDismissRequest = { showWildcardConfirm = false },
+            containerColor = Color(0xFF1A1A1A),
+            titleContentColor = WildcardColor,
+            textContentColor = Color(0xFFCCCCCC),
+            title = { Text("Use Wildcard?", fontFamily = ironManFont) },
+            text = { Text("This is your one wildcard for the season. Your prediction will be updated and you won't be able to use the wildcard again.", fontSize = 14.sp, lineHeight = 20.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showWildcardConfirm = false
+                    val fixture = wildcardFixture ?: return@TextButton
+                    val home = wildcardHome.toIntOrNull()
+                    val away = wildcardAway.toIntOrNull()
+                    if (home != null && away != null) {
+                        viewModel.submitWildcard(
+                            fixtureId = fixture.id,
+                            homeGoals = home,
+                            awayGoals = away,
+                            gameWeek = fixture.gameweek,
+                            onSuccess = {
+                                Toast.makeText(context, "Wildcard used!", Toast.LENGTH_SHORT).show()
+                                wildcardFixture = null
+                            },
+                            onFailure = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                        )
+                    }
+                }) {
+                    Text("Confirm", color = WildcardColor, fontFamily = ironManFont)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWildcardConfirm = false }) {
+                    Text("Cancel", color = Dim, fontFamily = ironManFont)
+                }
+            }
+        )
+    }
 
     val now by produceState(initialValue = LocalDateTime.now()) {
         while (true) { value = LocalDateTime.now(); delay(1000L) }
@@ -84,6 +131,9 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
         selectedFixture = null
         homeGoals = ""
         awayGoals = ""
+        wildcardFixture = null
+        wildcardHome = ""
+        wildcardAway = ""
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
@@ -205,6 +255,41 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
                 Spacer(modifier = Modifier.height(20.dp))
             }
 
+            // Token row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TokenCard(
+                    emoji = "🃏",
+                    name = "WILDCARD",
+                    description = "Change a locked prediction",
+                    color = WildcardColor,
+                    available = wildcardAvailable,
+                    ironManFont = ironManFont,
+                    modifier = Modifier.weight(1f)
+                )
+                TokenCard(
+                    emoji = "⚡",
+                    name = "DOUBLE DOWN",
+                    description = "2× points one gameweek",
+                    color = Gold,
+                    available = doubleDownAvailable,
+                    ironManFont = ironManFont,
+                    modifier = Modifier.weight(1f)
+                )
+                TokenCard(
+                    emoji = "🎖️",
+                    name = "CAPTAIN",
+                    description = "2× points on one fixture",
+                    color = Color(0xFF4B9EFF),
+                    available = captainAvailable,
+                    ironManFont = ironManFont,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Summary view
             if (showSummary) {
                 Text(
@@ -213,11 +298,39 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 fixtures.forEach { fixture ->
+                    val prediction = userPredictions.find { it.fixtureId == fixture.id }
+                    val canWildcard = wildcardAvailable &&
+                        fixture.homeTeamGoals == -1 &&
+                        prediction != null &&
+                        prediction.wildcardUsed.not()
+                    val isWildcardActive = wildcardFixture?.id == fixture.id
+
                     SummaryRow(
                         fixture = fixture,
-                        prediction = userPredictions.find { it.fixtureId == fixture.id },
-                        ironManFont = ironManFont
+                        prediction = prediction,
+                        canWildcard = canWildcard,
+                        isWildcardActive = isWildcardActive,
+                        ironManFont = ironManFont,
+                        onWildcardTap = {
+                            wildcardFixture = if (isWildcardActive) null else fixture
+                            wildcardHome = prediction?.homeGoals?.toString() ?: ""
+                            wildcardAway = prediction?.awayGoals?.toString() ?: ""
+                        }
                     )
+
+                    if (isWildcardActive) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        WildcardEntryCard(
+                            fixture = fixture,
+                            homeGoals = wildcardHome,
+                            awayGoals = wildcardAway,
+                            onHomeGoalsChange = { wildcardHome = it },
+                            onAwayGoalsChange = { wildcardAway = it },
+                            ironManFont = ironManFont,
+                            onSubmit = { showWildcardConfirm = true }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
 
             } else {
@@ -237,16 +350,21 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
 
                 upcomingFixtures.forEach { fixture ->
                     val isSelected = selectedFixture?.id == fixture.id
-                    val alreadyPredicted = userPredictions.any { it.fixtureId == fixture.id }
+                    val existingPred = userPredictions.find { it.fixtureId == fixture.id }
+                    val alreadyPredicted = existingPred != null
+                    val isCaptained = existingPred?.captainUsed == true
                     val deadline = fixture.deadline?.toDate()
                         ?.toInstant()?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
                     val isExpired = deadline?.isBefore(now) == true
+                    val canCaptain = alreadyPredicted && !isExpired && captainAvailable && !isCaptained
 
                     FixtureCard(
                         fixture = fixture,
                         isSelected = isSelected,
                         alreadyPredicted = alreadyPredicted,
                         isExpired = isExpired,
+                        isCaptained = isCaptained,
+                        canCaptain = canCaptain,
                         deadline = deadline,
                         now = now,
                         ironManFont = ironManFont,
@@ -256,6 +374,13 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
                                 homeGoals = ""
                                 awayGoals = ""
                             }
+                        },
+                        onCaptainTap = {
+                            viewModel.setCaptain(
+                                fixtureId = fixture.id,
+                                onSuccess = { Toast.makeText(context, "🎖️ Captain set!", Toast.LENGTH_SHORT).show() },
+                                onFailure = { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                            )
                         }
                     )
 
@@ -307,6 +432,72 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
     }
 }
 
+@Composable
+private fun TokenCard(
+    emoji: String,
+    name: String,
+    description: String,
+    color: Color,
+    available: Boolean,
+    ironManFont: FontFamily,
+    modifier: Modifier = Modifier
+) {
+    val bg     = if (available) color.copy(alpha = 0.08f) else Color(0xFF0D0D0D)
+    val border = if (available) color.copy(alpha = 0.45f) else Color(0xFF222222)
+    val textColor = if (available) color else Dim
+
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = bg),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, border)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(emoji, fontSize = 22.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                name,
+                color = textColor,
+                fontFamily = ironManFont,
+                fontSize = 9.sp,
+                letterSpacing = 0.5.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                description,
+                color = if (available) Color(0xFF999999) else Color(0xFF444444),
+                fontSize = 9.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 12.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Box(
+                modifier = Modifier
+                    .background(
+                        if (available) color.copy(alpha = 0.15f) else Color(0xFF1A1A1A),
+                        RoundedCornerShape(4.dp)
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    if (available) "AVAILABLE" else "USED",
+                    color = textColor,
+                    fontFamily = ironManFont,
+                    fontSize = 8.sp,
+                    letterSpacing = 0.5.sp
+                )
+            }
+        }
+    }
+}
+
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 private fun FixtureCard(
@@ -314,10 +505,13 @@ private fun FixtureCard(
     isSelected: Boolean,
     alreadyPredicted: Boolean,
     isExpired: Boolean,
+    isCaptained: Boolean = false,
+    canCaptain: Boolean = false,
     deadline: LocalDateTime?,
     now: LocalDateTime,
     ironManFont: FontFamily,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onCaptainTap: () -> Unit = {}
 ) {
     val borderColor = when {
         isSelected        -> Gold
@@ -360,7 +554,22 @@ private fun FixtureCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             when {
-                alreadyPredicted -> Text("✓  Prediction submitted", color = Color(0xFF4CAF50), fontSize = 12.sp)
+                alreadyPredicted -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("✓  Prediction submitted", color = Color(0xFF4CAF50), fontSize = 12.sp)
+                        if (isCaptained) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFF0D1A2E), RoundedCornerShape(4.dp))
+                                    .border(0.5.dp, Color(0xFF4B9EFF).copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("🎖️ CAPTAIN", color = Color(0xFF4B9EFF), fontFamily = ironManFont, fontSize = 9.sp)
+                            }
+                        }
+                    }
+                }
                 isExpired        -> Text("Closed", color = Dim, fontSize = 12.sp)
                 deadline != null -> {
                     val d = Duration.between(now, deadline)
@@ -368,6 +577,18 @@ private fun FixtureCard(
                         val s = String.format("%02d:%02d:%02d", d.toHours(), d.toMinutesPart(), d.toSecondsPart())
                         Text("Closes in  $s", color = Dim, fontSize = 12.sp)
                     }
+                }
+            }
+            if (canCaptain) {
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(color = Color(0xFF1E1E1E), thickness = 1.dp)
+                TextButton(onClick = onCaptainTap, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "🎖️  Set as Captain  ·  2× points",
+                        color = Color(0xFF4B9EFF),
+                        fontFamily = ironManFont,
+                        fontSize = 12.sp
+                    )
                 }
             }
         }
@@ -513,7 +734,10 @@ private fun ScoreEntryCard(
 private fun SummaryRow(
     fixture: FootballFixture,
     prediction: PredictionViewModel.UserPrediction?,
-    ironManFont: FontFamily
+    canWildcard: Boolean,
+    isWildcardActive: Boolean,
+    ironManFont: FontFamily,
+    onWildcardTap: () -> Unit
 ) {
     val pointColor = when {
         prediction == null -> Color(0xFFF44336)
@@ -529,31 +753,143 @@ private fun SummaryRow(
         }
     }
 
+    val wildcardBorder = if (isWildcardActive)
+        BorderStroke(1.dp, WildcardColor.copy(alpha = 0.6f))
+    else
+        BorderStroke(1.dp, Color(0xFF2A2A2A))
+
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = CardBg),
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, Color(0xFF2A2A2A))
+        border = wildcardBorder
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    fixture.homeTeam, color = Color.White,
+                    fontFamily = ironManFont, fontSize = 13.sp, modifier = Modifier.weight(1f)
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (prediction != null) "${prediction.homeGoals}  :  ${prediction.awayGoals}" else "—  :  —",
+                        color = pointColor, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 18.sp
+                    )
+                    if (prediction?.wildcardUsed == true) {
+                        Text("🃏 wildcarded", color = WildcardColor, fontSize = 10.sp)
+                    }
+                }
+                Text(
+                    fixture.awayTeam, color = Color.White,
+                    fontFamily = ironManFont, fontSize = 13.sp,
+                    modifier = Modifier.weight(1f), textAlign = TextAlign.End
+                )
+            }
+
+            if (canWildcard) {
+                HorizontalDivider(color = Color(0xFF1E1E1E), thickness = 1.dp)
+                TextButton(
+                    onClick = onWildcardTap,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (isWildcardActive) "✕  Cancel" else "🃏  Use Wildcard",
+                        color = if (isWildcardActive) Dim else WildcardColor,
+                        fontFamily = ironManFont,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WildcardEntryCard(
+    fixture: FootballFixture,
+    homeGoals: String,
+    awayGoals: String,
+    onHomeGoalsChange: (String) -> Unit,
+    onAwayGoalsChange: (String) -> Unit,
+    ironManFont: FontFamily,
+    onSubmit: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF160D20)),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, WildcardColor.copy(alpha = 0.4f))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                fixture.homeTeam, color = Color.White,
-                fontFamily = ironManFont, fontSize = 13.sp, modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = if (prediction != null) "${prediction.homeGoals}  :  ${prediction.awayGoals}" else "—  :  —",
-                color = pointColor, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 18.sp,
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
-            Text(
-                fixture.awayTeam, color = Color.White,
-                fontFamily = ironManFont, fontSize = 13.sp,
-                modifier = Modifier.weight(1f), textAlign = TextAlign.End
-            )
+            Text("🃏  WILDCARD", color = WildcardColor, fontFamily = ironManFont, fontSize = 13.sp, letterSpacing = 1.sp)
+            Text("Change your prediction — one use per season", color = Dim, fontSize = 11.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                    Text(fixture.homeTeam, color = WildcardColor, fontFamily = ironManFont, fontSize = 13.sp, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = homeGoals,
+                        onValueChange = { if (it.length <= 2 && (it.toIntOrNull() ?: 0) in 0..99) onHomeGoalsChange(it) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 32.sp, textAlign = TextAlign.Center, color = Color.White),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = WildcardColor,
+                            unfocusedBorderColor = Color(0xFF444444),
+                            cursorColor = WildcardColor
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.size(76.dp)
+                    )
+                }
+                Text("—", color = Color(0xFF444444), fontSize = 28.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                    Text(fixture.awayTeam, color = WildcardColor, fontFamily = ironManFont, fontSize = 13.sp, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = awayGoals,
+                        onValueChange = { if (it.length <= 2 && (it.toIntOrNull() ?: 0) in 0..99) onAwayGoalsChange(it) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 32.sp, textAlign = TextAlign.Center, color = Color.White),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = WildcardColor,
+                            unfocusedBorderColor = Color(0xFF444444),
+                            cursorColor = WildcardColor
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.size(76.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = onSubmit,
+                enabled = homeGoals.isNotBlank() && awayGoals.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = WildcardColor,
+                    disabledContainerColor = Color(0xFF333333)
+                ),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Confirm Wildcard", color = Color.White, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
         }
     }
 }

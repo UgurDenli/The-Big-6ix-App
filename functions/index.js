@@ -1,401 +1,958 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const { google } = require("googleapis");
-const cors = require("cors")({ origin: true });
 
-admin.initializeApp();
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+
 const db = admin.firestore();
+const SCORING_FUNCTION_VERSION = "gw35-rescore-debug-v2";
 
-const DISCORD_GUILD_ID   = "1204439893036630026"; // The Community
-const DISCORD_REDIRECT   = "https://the-big-6ix.web.app/discord-callback.html";
+const getNumberValue = (...values) => {
+  for (const value of values) {
+    if (typeof value === "number" && !Number.isNaN(value)) return value;
 
-const YOUTUBE_MEMBER_ROLES = [
-  "1402342200515231764", // YouTube Member
-  "1402342200515231765", // YouTube Member: The Community 🫵
-];
-const PRIVILEGED_ROLES = [
-  "1216816077783302226", // Admin
-  "1204451389665845299", // Moderator
-  "1216899081301917726", // Owner
-  "1379468933114892449", // Dev Man
-];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+    }
 
-exports.verifyDiscordRole = functions.https.onRequest(async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
-
-  const code = req.query.code || (req.body && req.body.code);
-  if (!code) {
-    return res.status(200).json({ success: false, error: "Missing code parameter" });
+    if (value && typeof value === "object") {
+      const nested = getNumberValue(
+        value.goals,
+        value.score,
+        value.value,
+        value.prediction,
+        value.predictedGoals,
+        value.predictedScore
+      );
+      if (nested !== null) return nested;
+    }
   }
 
-  try {
-    // 1. Exchange code for Discord access token
-    const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id:     functions.config().discord.client_id,
-        client_secret: functions.config().discord.client_secret,
-        grant_type:    "authorization_code",
-        code:          code,
-        redirect_uri:  DISCORD_REDIRECT,
-      }),
-    });
-    const tokenData = await tokenRes.json();
-    if (tokenData.error) {
-      return res.status(200).json({
-        success: false,
-        error: tokenData.error_description || tokenData.error,
-        error_code: tokenData.error,
-        used_redirect_uri: DISCORD_REDIRECT,
-      });
-    }
+  return null;
+};
 
-    const accessToken = tokenData.access_token;
-
-    // 2. Get Discord user info
-    const userRes = await fetch("https://discord.com/api/users/@me", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const user = await userRes.json();
-    if (!user.id) {
-      return res.status(200).json({ success: false, error: "Failed to fetch Discord user info" });
-    }
-    const discordId   = user.id;
-    const displayName = user.global_name || user.username;
-
-    // 3. Check guild membership with the user's own token (guilds.members.read scope)
-    const memberRes = await fetch(
-      `https://discord.com/api/users/@me/guilds/${DISCORD_GUILD_ID}/member`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-
-    if (!memberRes.ok) {
-      return res.status(200).json({
-        success: false,
-        error: "You must be a member of The Big 6ix Discord server to log in.",
-      });
-    }
-
-    // 4. Check YouTube Member role (or privileged role bypass)
-    const memberData = await memberRes.json();
-    const userRoles = memberData.roles || [];
-    const hasAccess =
-      userRoles.some(r => YOUTUBE_MEMBER_ROLES.includes(r)) ||
-      userRoles.some(r => PRIVILEGED_ROLES.includes(r));
-
-    if (!hasAccess) {
-      return res.status(200).json({
-        success: false,
-        error: "You need to be a YouTube channel member to access The Big 6ix app. Join at youtube.com/@TheBig6ix",
-      });
-    }
-
-    // 5. Mint Firebase custom token using Discord user ID
-    const firebaseToken = await admin.auth().createCustomToken(discordId);
-
-    return res.status(200).json({ success: true, token: firebaseToken, name: displayName });
-
-  } catch (e) {
-    console.error("verifyDiscordRole error:", e);
-    return res.status(200).json({ success: false, error: `Server error: ${e.message}` });
-  }
-});
-
-// === YouTube Membership Check ===
-const oAuth2Client = new google.auth.OAuth2(
-functions.config().google.client_id,
-functions.config().google.client_secret,
-"https://us-central1-the-big-6ix.cloudfunctions.net/exchangeAuthCodeForTokenAndCheckMembership"
-);
-
-exports.exchangeAuthCodeForTokenAndCheckMembership = functions.https.onRequest((req, res) => {
-cors(req, res, async () => {
-try {
-  const authCode = req.body.authCode;
-  if (!authCode) return res.status(400).send({ error: "Authorization code is required" });
-
-  const { tokens } = await oAuth2Client.getToken(authCode);
-  oAuth2Client.setCredentials(tokens);
-
-  const youtube = google.youtube({ version: "v3", auth: oAuth2Client });
-  const response = await youtube.subscriptions.list({ part: "snippet", mine: true, maxResults: 50 });
-
-  const isMember = (response.data.items || []).some((sub) =>
-    sub.snippet?.resourceId?.channelId === "UCUP5RcljxXkKm3agi9WNrDA"
+const getFixtureGameweek = (fixture) =>
+  getNumberValue(
+    fixture.gameweek,
+    fixture.gameWeek,
+    fixture.gameweekNumber,
+    fixture.gameWeekNumber,
+    fixture.week
   );
 
-  res.status(isMember ? 200 : 403).send({
-    isMember,
-    message: isMember ? undefined : "Not a member of the channel"
-  });
-} catch (err) {
-  console.error("Membership check error:", err.message);
-  res.status(500).send({ error: "Verification failed", details: err.message });
-}
-});
-});
+const getFixtureHomeGoals = (fixture) =>
+  getNumberValue(
+    fixture.homeTeamGoals,
+    fixture.homeScore,
+    fixture.homeGoals,
+    fixture.home_team_goals
+  );
 
-// === Shared Scoring Logic ===
-const scoreFixturePredictions = async (fixtureDoc, predictionsRef, usersRef, scoredGameweeks) => {
-  const fixture = fixtureDoc.data();
-  const fixtureId = fixtureDoc.id;
+const getFixtureAwayGoals = (fixture) =>
+  getNumberValue(
+    fixture.awayTeamGoals,
+    fixture.awayScore,
+    fixture.awayGoals,
+    fixture.away_team_goals
+  );
 
-  const fixtureHome = Number(fixture.homeTeamGoals);
-  const fixtureAway = Number(fixture.awayTeamGoals);
+const getPredictionHomeGoals = (prediction) =>
+  getNumberValue(
+    prediction.homeTeamGoals,
+    prediction.homeScore,
+    prediction.homeGoals,
+    prediction.predictedHomeGoals,
+    prediction.predictedHomeScore,
+    prediction.homeTeamScore,
+    prediction.home_team_goals,
+    prediction.home_team_score,
+    prediction.home,
+    prediction.homeTeam,
+    prediction.homePrediction,
+    prediction.predictionHome,
+    prediction.prediction?.homeTeamGoals,
+    prediction.prediction?.homeScore,
+    prediction.prediction?.homeGoals,
+    prediction.prediction?.predictedHomeGoals,
+    prediction.score?.home,
+    prediction.score?.homeScore,
+    prediction.score?.homeTeamGoals,
+    prediction.scores?.home,
+    prediction.scores?.homeScore,
+    prediction.scores?.homeTeamGoals
+  );
 
-  if (isNaN(fixtureHome) || isNaN(fixtureAway) || fixtureHome < 0 || fixtureAway < 0) return;
+const getPredictionAwayGoals = (prediction) =>
+  getNumberValue(
+    prediction.awayTeamGoals,
+    prediction.awayScore,
+    prediction.awayGoals,
+    prediction.predictedAwayGoals,
+    prediction.predictedAwayScore,
+    prediction.awayTeamScore,
+    prediction.away_team_goals,
+    prediction.away_team_score,
+    prediction.away,
+    prediction.awayTeam,
+    prediction.awayPrediction,
+    prediction.predictionAway,
+    prediction.prediction?.awayTeamGoals,
+    prediction.prediction?.awayScore,
+    prediction.prediction?.awayGoals,
+    prediction.prediction?.predictedAwayGoals,
+    prediction.score?.away,
+    prediction.score?.awayScore,
+    prediction.score?.awayTeamGoals,
+    prediction.scores?.away,
+    prediction.scores?.awayScore,
+    prediction.scores?.awayTeamGoals
+  );
 
-  const actualOutcome =
-    fixtureHome === fixtureAway ? "draw" : fixtureHome > fixtureAway ? "home" : "away";
+const getPredictionGameweek = (prediction) =>
+  getNumberValue(
+    prediction.gameweek,
+    prediction.gameWeek,
+    prediction.gameweekNumber,
+    prediction.gameWeekNumber,
+    prediction.week
+  );
 
-  console.log(`Scoring fixture ${fixtureId}: ${fixtureHome}-${fixtureAway} (${actualOutcome})`);
+const resetGameweekPredictionState = async (targetGameweek) => {
+  if (!Number.isInteger(targetGameweek)) {
+    return {
+      resetPredictionDocs: 0,
+      resetUserScoreAdjustments: 0,
+    };
+  }
 
-  const predictionsSnap = await predictionsRef
-    .where("fixtureId", "==", fixtureId)
-    .where("scoredPoints", "==", false)
-    .get();
+  const predictionsSnap = await db.collection("predictions").get();
+  const usersRef = db.collection("users");
+
+  const batchSize = 450;
+  let batch = db.batch();
+  let opCount = 0;
+  let resetPredictionDocs = 0;
+  const userScoreAdjustments = {};
+
+  const commitIfNeeded = async () => {
+    if (opCount >= batchSize) {
+      await batch.commit();
+      batch = db.batch();
+      opCount = 0;
+    }
+  };
 
   for (const predictionDoc of predictionsSnap.docs) {
     const prediction = predictionDoc.data();
-    const userRef = usersRef.doc(prediction.userId);
-    const userDoc = await userRef.get();
+    const predictionGameweek = getPredictionGameweek(prediction);
 
-    const predHome = Number(prediction.homeTeamGoals);
-    const predAway = Number(prediction.awayTeamGoals);
-    const predictedOutcome =
-      predHome === predAway ? "draw" : predHome > predAway ? "home" : "away";
+    if (predictionGameweek !== targetGameweek) continue;
 
-    let points = 0;
-    if (predHome === fixtureHome && predAway === fixtureAway) {
-      points = 3;
-    } else if (predictedOutcome === actualOutcome) {
-      points = 1;
+    const previousPoints = Number(prediction.awardedPoints || 0);
+
+    if (prediction.userId && previousPoints !== 0) {
+      userScoreAdjustments[prediction.userId] =
+        (userScoreAdjustments[prediction.userId] || 0) - previousPoints;
     }
 
-    if (prediction.captainUsed && points > 0) points *= 2;
-
-    console.log(`  User ${prediction.userId} predicted ${predHome}-${predAway} → ${points} pts`);
-
-    await predictionDoc.ref.update({ scoredPoints: true, isCorrect: points > 0, awardedPoints: points });
-    await userRef.update({
-      score: admin.firestore.FieldValue.increment(points),
-      weeklyScore: admin.firestore.FieldValue.increment(points),
-      monthlyScore: admin.firestore.FieldValue.increment(points),
+    batch.update(predictionDoc.ref, {
+      scoredPoints: false,
+      awardedPoints: 0,
+      isCorrect: false,
+      ignoredDuplicate: false,
+      scoringReason: "reset_pending_recalculation",
     });
 
-    if (scoredGameweeks) scoredGameweeks.add(fixture.gameweek);
-
-    const token = userDoc.data()?.fcmToken;
-    if (token) {
-      try {
-        await admin.messaging().send({
-          notification: {
-            title: `You earned ${points} point${points !== 1 ? "s" : ""}!`,
-            body: "Your new total is updating...",
-            sound: "default",
-          },
-          token,
-        });
-      } catch (e) {
-        console.error(`FCM error for ${prediction.userId}:`, e.message);
-      }
-    }
+    opCount++;
+    resetPredictionDocs++;
+    await commitIfNeeded();
   }
+
+  for (const [userId, scoreDelta] of Object.entries(userScoreAdjustments)) {
+    if (scoreDelta === 0) continue;
+
+    batch.update(usersRef.doc(userId), {
+      score: admin.firestore.FieldValue.increment(scoreDelta),
+    });
+
+    opCount++;
+    await commitIfNeeded();
+  }
+
+  if (opCount > 0) {
+    await batch.commit();
+  }
+
+  return {
+    resetPredictionDocs,
+    resetUserScoreAdjustments: Object.keys(userScoreAdjustments).length,
+  };
 };
 
-const calculatePoints = async () => {
+const getPredictionScorePair = (prediction) => ({
+  home: getNumberValue(
+    prediction.homeTeamGoals,
+    prediction.homeScore,
+    prediction.homeGoals,
+    prediction.predictedHomeGoals,
+    prediction.predictedHomeScore,
+    prediction.homeTeamScore,
+    prediction.home_team_goals,
+    prediction.home_team_score,
+    prediction.prediction?.homeTeamGoals,
+    prediction.prediction?.homeScore,
+    prediction.prediction?.homeGoals,
+    prediction.prediction?.predictedHomeGoals,
+    prediction.score?.home,
+    prediction.score?.homeScore,
+    prediction.score?.homeGoals,
+    prediction.score?.homeTeamGoals,
+    prediction.scores?.home,
+    prediction.scores?.homeScore,
+    prediction.scores?.homeGoals,
+    prediction.scores?.homeTeamGoals
+  ),
+  away: getNumberValue(
+    prediction.awayTeamGoals,
+    prediction.awayScore,
+    prediction.awayGoals,
+    prediction.predictedAwayGoals,
+    prediction.predictedAwayScore,
+    prediction.awayTeamScore,
+    prediction.away_team_goals,
+    prediction.away_team_score,
+    prediction.prediction?.awayTeamGoals,
+    prediction.prediction?.awayScore,
+    prediction.prediction?.awayGoals,
+    prediction.prediction?.predictedAwayGoals,
+    prediction.score?.away,
+    prediction.score?.awayScore,
+    prediction.score?.awayGoals,
+    prediction.score?.awayTeamGoals,
+    prediction.scores?.away,
+    prediction.scores?.awayScore,
+    prediction.scores?.awayGoals,
+    prediction.scores?.awayTeamGoals
+  ),
+});
+
+const getFixtureScorePair = (fixture) => ({
+  home: getNumberValue(
+    fixture.homeTeamGoals,
+    fixture.homeScore,
+    fixture.homeGoals,
+    fixture.home_team_goals,
+    fixture.score?.home,
+    fixture.score?.homeScore,
+    fixture.score?.homeGoals,
+    fixture.scores?.home,
+    fixture.scores?.homeScore,
+    fixture.scores?.homeGoals
+  ),
+  away: getNumberValue(
+    fixture.awayTeamGoals,
+    fixture.awayScore,
+    fixture.awayGoals,
+    fixture.away_team_goals,
+    fixture.score?.away,
+    fixture.score?.awayScore,
+    fixture.score?.awayGoals,
+    fixture.scores?.away,
+    fixture.scores?.awayScore,
+    fixture.scores?.awayGoals
+  ),
+});
+
+const getOutcomeFromScorePair = ({ home, away }) => {
+  if (home === null || away === null) return null;
+  if (home === away) return "draw";
+  return home > away ? "home" : "away";
+};
+
+const recalculateGameweekDirect = async (targetGameweek) => {
+  const predictionsSnap = await db.collection("predictions").get();
+  const usersRef = db.collection("users");
+
+  let batch = db.batch();
+  let opCount = 0;
+  const batchSize = 450;
+
+  let matchedPredictions = 0;
+  let scoredPredictions = 0;
+  let skippedNoFixtureId = 0;
+  let skippedFixtureMissing = 0;
+  let skippedFixtureNotComplete = 0;
+  let skippedPredictionScoreMissing = 0;
+  const userScoreDeltas = {};
+  const fixtureCache = new Map();
+
+  const commitIfNeeded = async () => {
+    if (opCount >= batchSize) {
+      await batch.commit();
+      batch = db.batch();
+      opCount = 0;
+    }
+  };
+
+  const getFixtureById = async (fixtureId) => {
+    if (fixtureCache.has(fixtureId)) return fixtureCache.get(fixtureId);
+
+    const fixtureDoc = await db.collection("fixtures").doc(fixtureId).get();
+    const value = fixtureDoc.exists
+      ? {
+          id: fixtureDoc.id,
+          ref: fixtureDoc.ref,
+          ...fixtureDoc.data(),
+        }
+      : null;
+
+    fixtureCache.set(fixtureId, value);
+    return value;
+  };
+
+  for (const predictionDoc of predictionsSnap.docs) {
+    const prediction = predictionDoc.data();
+    const predictionGameweek = getPredictionGameweek(prediction);
+
+    if (predictionGameweek !== targetGameweek) continue;
+
+    matchedPredictions++;
+
+    const previousPoints = Number(prediction.awardedPoints || 0);
+    if (prediction.userId && previousPoints !== 0) {
+      userScoreDeltas[prediction.userId] =
+        (userScoreDeltas[prediction.userId] || 0) - previousPoints;
+    }
+
+    const fixtureId = prediction.fixtureId;
+
+    if (!fixtureId) {
+      skippedNoFixtureId++;
+      batch.update(predictionDoc.ref, {
+        scoredPoints: true,
+        awardedPoints: 0,
+        isCorrect: false,
+        ignoredDuplicate: false,
+        scoringReason: "missing_fixtureId",
+      });
+      opCount++;
+      await commitIfNeeded();
+      continue;
+    }
+
+    const fixture = await getFixtureById(fixtureId);
+
+    if (!fixture) {
+      skippedFixtureMissing++;
+      batch.update(predictionDoc.ref, {
+        scoredPoints: true,
+        awardedPoints: 0,
+        isCorrect: false,
+        ignoredDuplicate: false,
+        scoringReason: "fixture_missing_for_prediction_fixtureId",
+        debugFixtureId: fixtureId,
+      });
+      opCount++;
+      await commitIfNeeded();
+      continue;
+    }
+
+    const fixtureScores = getFixtureScorePair(fixture);
+    const predictionScores = getPredictionScorePair(prediction);
+    const actualOutcome = getOutcomeFromScorePair(fixtureScores);
+    const predictedOutcome = getOutcomeFromScorePair(predictionScores);
+
+    if (
+      fixtureScores.home === null ||
+      fixtureScores.away === null ||
+      fixtureScores.home < 0 ||
+      fixtureScores.away < 0
+    ) {
+      skippedFixtureNotComplete++;
+      batch.update(predictionDoc.ref, {
+        scoredPoints: true,
+        awardedPoints: 0,
+        isCorrect: false,
+        ignoredDuplicate: false,
+        scoringReason: "fixture_not_complete_or_missing_score",
+        debugFixtureId: fixtureId,
+        debugActualHomeGoals: fixtureScores.home,
+        debugActualAwayGoals: fixtureScores.away,
+      });
+      opCount++;
+      await commitIfNeeded();
+      continue;
+    }
+
+    if (predictionScores.home === null || predictionScores.away === null) {
+      skippedPredictionScoreMissing++;
+      batch.update(predictionDoc.ref, {
+        scoredPoints: true,
+        awardedPoints: 0,
+        isCorrect: false,
+        ignoredDuplicate: false,
+        scoringReason: "prediction_score_missing",
+        debugFixtureId: fixtureId,
+        debugPredictionKeys: Object.keys(prediction),
+        debugActualHomeGoals: fixtureScores.home,
+        debugActualAwayGoals: fixtureScores.away,
+        debugPredictionHomeGoals: predictionScores.home,
+        debugPredictionAwayGoals: predictionScores.away,
+      });
+      opCount++;
+      await commitIfNeeded();
+      continue;
+    }
+
+    let points = 0;
+    let scoringReason = "wrong_prediction";
+
+    if (
+      predictionScores.home === fixtureScores.home &&
+      predictionScores.away === fixtureScores.away
+    ) {
+      points = 3;
+      scoringReason = "exact_score";
+    } else if (predictedOutcome === actualOutcome) {
+      points = 1;
+      scoringReason = "correct_outcome";
+    }
+
+    batch.update(predictionDoc.ref, {
+      scoredPoints: true,
+      awardedPoints: points,
+      isCorrect: points > 0,
+      ignoredDuplicate: false,
+      scoringReason,
+      debugFixtureId: fixtureId,
+      debugActualHomeGoals: fixtureScores.home,
+      debugActualAwayGoals: fixtureScores.away,
+      debugPredictionHomeGoals: predictionScores.home,
+      debugPredictionAwayGoals: predictionScores.away,
+      debugActualOutcome: actualOutcome,
+      debugPredictedOutcome: predictedOutcome,
+      debugDirectRecalc: true,
+    });
+
+    opCount++;
+    scoredPredictions++;
+    await commitIfNeeded();
+
+    if (prediction.userId && points !== 0) {
+      userScoreDeltas[prediction.userId] =
+        (userScoreDeltas[prediction.userId] || 0) + points;
+    }
+  }
+
+  for (const [userId, scoreDelta] of Object.entries(userScoreDeltas)) {
+    if (scoreDelta === 0) continue;
+
+    batch.update(usersRef.doc(userId), {
+      score: admin.firestore.FieldValue.increment(scoreDelta),
+    });
+
+    opCount++;
+    await commitIfNeeded();
+  }
+
+  if (opCount > 0) {
+    await batch.commit();
+  }
+
+  return {
+    targetGameweek,
+    matchedPredictions,
+    scoredPredictions,
+    changedUsers: Object.keys(userScoreDeltas).filter(
+      (userId) => userScoreDeltas[userId] !== 0
+    ).length,
+    skippedNoFixtureId,
+    skippedFixtureMissing,
+    skippedFixtureNotComplete,
+    skippedPredictionScoreMissing,
+  };
+};
+
+const calculatePoints = async (targetGameweek = null, options = {}) => {
+  const { rescore = false, sendPush = true, enforceDeadline = true } = options;
+
   const fixturesSnap = await db.collection("fixtures").get();
   const predictionsRef = db.collection("predictions");
   const usersRef = db.collection("users");
-  const scoredGameweeks = new Set();
+
+  const batchSize = 450;
+  let batch = db.batch();
+  let opCount = 0;
+
+  const commitIfNeeded = async () => {
+    if (opCount >= batchSize) {
+      await batch.commit();
+      batch = db.batch();
+      opCount = 0;
+    }
+  };
+
+  const userScoreAdjustments = {};
+  let processedFixtures = 0;
+  let processedPredictions = 0;
+  let resetPredictions = 0;
+  let skippedWrongGameweek = 0;
+  let skippedNoResult = 0;
+  let skippedNoDeadline = 0;
 
   for (const fixtureDoc of fixturesSnap.docs) {
-    await scoreFixturePredictions(fixtureDoc, predictionsRef, usersRef, scoredGameweeks);
-  }
+    const fixture = fixtureDoc.data();
 
-  for (const gw of scoredGameweeks) {
-    await updateGameweekWinner(gw);
-  }
-};
+    const fixtureGameweek = getFixtureGameweek(fixture);
 
-const updateGameweekWinner = async (gameweek) => {
-  const gwPreds = await db.collection("predictions")
-    .where("gameweek", "==", gameweek)
-    .where("scoredPoints", "==", true)
-    .get();
+    if (targetGameweek !== null && fixtureGameweek !== targetGameweek) {
+      skippedWrongGameweek++;
+      continue;
+    }
 
-  const pointsByUser = {};
-  for (const doc of gwPreds.docs) {
-    const { userId, awardedPoints = 0 } = doc.data();
-    pointsByUser[userId] = (pointsByUser[userId] || 0) + awardedPoints;
-  }
+    const fixtureId = fixtureDoc.id;
+    const fixtureHomeGoals = getFixtureHomeGoals(fixture);
+    const fixtureAwayGoals = getFixtureAwayGoals(fixture);
 
-  const sorted = Object.entries(pointsByUser).sort(([, a], [, b]) => b - a);
-  if (sorted.length === 0) return;
+    if (
+      fixtureHomeGoals === null ||
+      fixtureAwayGoals === null ||
+      fixtureHomeGoals < 0 ||
+      fixtureAwayGoals < 0
+    ) {
+      skippedNoResult++;
+      continue;
+    }
 
-  const [topUserId, topPoints] = sorted[0];
-  const userDoc = await db.collection("users").doc(topUserId).get();
-  const name = userDoc.data()?.fullName || "Unknown";
+    if (!fixture.deadline || typeof fixture.deadline.toMillis !== "function") {
+      skippedNoDeadline++;
+      continue;
+    }
 
-  await db.collection("gameweekWinners").doc(String(gameweek)).set({
-    userId: topUserId,
-    name,
-    points: topPoints,
-    gameweek,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-  console.log(`GW ${gameweek} winner: ${name} with ${topPoints} pts`);
-};
+    processedFixtures++;
 
-// === Scheduled: every 5 minutes
-exports.calculatePoints = functions.pubsub.schedule("every 5 minutes").onRun(async () => {
-await calculatePoints();
-});
+    const actualOutcome =
+      fixtureHomeGoals === fixtureAwayGoals
+        ? "draw"
+        : fixtureHomeGoals > fixtureAwayGoals
+        ? "home"
+        : "away";
 
-// === Manual trigger — also handles rescore via ?rescore=true&gameweek=35
-exports.manualCalculatePoints = functions.https.onRequest(async (req, res) => {
-  try {
-    const rescore = req.query.rescore === "true";
-    const gameweek = Number(req.query.gameweek);
+    const snapshot = await predictionsRef
+      .where("fixtureId", "==", fixtureId)
+      .get();
 
-    if (rescore && gameweek) {
-      const predictionsRef = db.collection("predictions");
-      const fixturesRef = db.collection("fixtures");
-      const usersRef = db.collection("users");
+    const predictionsByUser = new Map();
 
-      // Query predictions by gameweek (try both number and string)
-      const [predSnapNum, predSnapStr] = await Promise.all([
-        predictionsRef.where("gameweek", "==", gameweek).get(),
-        predictionsRef.where("gameweek", "==", String(gameweek)).get(),
-      ]);
-      const seenPredIds = new Set();
-      const predDocs = [...predSnapNum.docs, ...predSnapStr.docs].filter(d => {
-        if (seenPredIds.has(d.id)) return false;
-        seenPredIds.add(d.id);
-        return true;
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (!data.userId) return;
+
+      if (!predictionsByUser.has(data.userId)) {
+        predictionsByUser.set(data.userId, []);
+      }
+
+      predictionsByUser.get(data.userId).push({
+        id: doc.id,
+        ref: doc.ref,
+        ...data,
+      });
+    });
+
+    for (const [userId, predictions] of predictionsByUser.entries()) {
+      if (rescore) {
+        for (const p of predictions) {
+          batch.update(p.ref, {
+            scoredPoints: false,
+            awardedPoints: 0,
+            isCorrect: false,
+            ignoredDuplicate: false,
+            scoringReason: "fixture_scoped_reset_pending_recalculation",
+          });
+
+          opCount++;
+          resetPredictions++;
+          await commitIfNeeded();
+        }
+      }
+
+      const validPrediction = predictions.reduce((latest, current) => {
+        const latestTime = latest?.submittedAt?.toMillis?.() ?? 0;
+        const currentTime = current?.submittedAt?.toMillis?.() ?? 0;
+        return currentTime > latestTime ? current : latest;
+      }, null);
+
+      if (!validPrediction) continue;
+
+      const duplicates = predictions.filter((p) => p.id !== validPrediction.id);
+
+      for (const dup of duplicates) {
+        batch.update(dup.ref, {
+          scoredPoints: true,
+          awardedPoints: 0,
+          isCorrect: false,
+          ignoredDuplicate: true,
+          scoringReason: "ignored_duplicate_prediction",
+        });
+
+        opCount++;
+        processedPredictions++;
+        await commitIfNeeded();
+      }
+
+      if (!rescore && validPrediction.scoredPoints === true) continue;
+
+      if (
+        enforceDeadline &&
+        (!validPrediction.submittedAt ||
+          typeof validPrediction.submittedAt.toMillis !== "function" ||
+          validPrediction.submittedAt.toMillis() > fixture.deadline.toMillis())
+      ) {
+        batch.update(validPrediction.ref, {
+          scoredPoints: true,
+          isCorrect: false,
+          awardedPoints: 0,
+          ignoredDuplicate: false,
+          scoringReason: !validPrediction.submittedAt || typeof validPrediction.submittedAt.toMillis !== "function"
+            ? "missing_or_invalid_submittedAt"
+            : "submitted_after_deadline",
+          debugDeadlineEnforced: enforceDeadline,
+        });
+
+        opCount++;
+        processedPredictions++;
+        await commitIfNeeded();
+        continue;
+      }
+
+      const predictionHomeGoals = getPredictionHomeGoals(validPrediction);
+      const predictionAwayGoals = getPredictionAwayGoals(validPrediction);
+      const debugPredictionKeys = Object.keys(validPrediction).filter((key) => key !== "ref");
+
+      if (predictionHomeGoals === null || predictionAwayGoals === null) {
+        batch.update(validPrediction.ref, {
+          scoredPoints: true,
+          isCorrect: false,
+          awardedPoints: 0,
+          ignoredDuplicate: false,
+          scoringReason: "could_not_parse_prediction_score",
+          debugPredictionKeys,
+          debugRawHomeTeamGoals: validPrediction.homeTeamGoals ?? null,
+          debugRawAwayTeamGoals: validPrediction.awayTeamGoals ?? null,
+          debugRawHomeScore: validPrediction.homeScore ?? null,
+          debugRawAwayScore: validPrediction.awayScore ?? null,
+        });
+
+        opCount++;
+        processedPredictions++;
+        await commitIfNeeded();
+        continue;
+      }
+
+      const predictedOutcome =
+        predictionHomeGoals === predictionAwayGoals
+          ? "draw"
+          : predictionHomeGoals > predictionAwayGoals
+          ? "home"
+          : "away";
+
+      let points = 0;
+
+      if (
+        predictionHomeGoals === fixtureHomeGoals &&
+        predictionAwayGoals === fixtureAwayGoals
+      ) {
+        points = 3;
+      } else if (predictedOutcome === actualOutcome) {
+        points = 1;
+      }
+
+      batch.update(validPrediction.ref, {
+        scoredPoints: true,
+        isCorrect: points > 0,
+        awardedPoints: points,
+        ignoredDuplicate: false,
+        scoringReason: points === 3
+          ? "exact_score"
+          : points === 1
+          ? "correct_outcome"
+          : "wrong_prediction",
+        debugActualHomeGoals: fixtureHomeGoals,
+        debugActualAwayGoals: fixtureAwayGoals,
+        debugPredictionHomeGoals: predictionHomeGoals,
+        debugPredictionAwayGoals: predictionAwayGoals,
+        debugPredictionKeys,
+        debugActualOutcome: actualOutcome,
+        debugPredictedOutcome: predictedOutcome,
       });
 
-      // Cache fixture lookups
-      const fixtureCache = {};
-      let rescored = 0;
+      opCount++;
+      processedPredictions++;
+      await commitIfNeeded();
 
-      for (const predDoc of predDocs) {
-        const pred = predDoc.data();
-        const fixtureId = pred.fixtureId;
-        if (!fixtureId) continue;
-
-        if (!fixtureCache[fixtureId]) {
-          const fDoc = await fixturesRef.doc(fixtureId).get();
-          fixtureCache[fixtureId] = fDoc.exists ? fDoc.data() : null;
-        }
-        const fixture = fixtureCache[fixtureId];
-        if (!fixture) continue;
-
-        const fixtureHome = Number(fixture.homeTeamGoals);
-        const fixtureAway = Number(fixture.awayTeamGoals);
-        if (isNaN(fixtureHome) || fixtureHome < 0 || isNaN(fixtureAway) || fixtureAway < 0) continue;
-
-        const actualOutcome = fixtureHome === fixtureAway ? "draw" : fixtureHome > fixtureAway ? "home" : "away";
-        const prevPoints = Number(pred.awardedPoints ?? 0);
-        const predHome = Number(pred.homeTeamGoals);
-        const predAway = Number(pred.awayTeamGoals);
-        const predictedOutcome = predHome === predAway ? "draw" : predHome > predAway ? "home" : "away";
-
-        let newPoints = 0;
-        if (predHome === fixtureHome && predAway === fixtureAway) newPoints = 3;
-        else if (predictedOutcome === actualOutcome) newPoints = 1;
-        if (pred.captainUsed && newPoints > 0) newPoints *= 2;
-
-        const diff = newPoints - prevPoints;
-        console.log(`Rescore GW${gameweek} fixture ${fixtureId}: user ${pred.userId} predicted ${predHome}-${predAway} vs actual ${fixtureHome}-${fixtureAway} → ${prevPoints}→${newPoints}`);
-
-        await predDoc.ref.update({ scoredPoints: true, isCorrect: newPoints > 0, awardedPoints: newPoints });
-        if (diff !== 0) {
-          await usersRef.doc(pred.userId).update({
-            score: admin.firestore.FieldValue.increment(diff),
-            weeklyScore: admin.firestore.FieldValue.increment(diff),
-            monthlyScore: admin.firestore.FieldValue.increment(diff),
-          });
-        }
-        rescored++;
+      if (points !== 0) {
+        userScoreAdjustments[userId] =
+          (userScoreAdjustments[userId] || 0) + points;
       }
 
-      await updateGameweekWinner(gameweek);
-      return res.status(200).send(`Rescored ${rescored} predictions for GW${gameweek}.`);
+      if (sendPush && points > 0) {
+        try {
+          const userRef = usersRef.doc(userId);
+          const userDoc = await userRef.get();
+          const token = userDoc.data()?.fcmToken;
+
+          if (token) {
+            await admin.messaging().send({
+              notification: {
+                title: `You earned ${points} point${points !== 1 ? "s" : ""}!`,
+                body: `Your score has been updated.`,
+              },
+              token,
+            });
+          }
+        } catch (e) {
+          console.log("Push failed:", e.message);
+        }
+      }
+    }
+  }
+
+  for (const [userId, scoreDelta] of Object.entries(userScoreAdjustments)) {
+    if (scoreDelta === 0) continue;
+
+    batch.update(usersRef.doc(userId), {
+      score: admin.firestore.FieldValue.increment(scoreDelta),
+    });
+
+    opCount++;
+    await commitIfNeeded();
+  }
+
+  if (opCount > 0) {
+    await batch.commit();
+  }
+
+  console.log(
+    `✅ Scoring complete. fixtures=${processedFixtures}, predictions=${processedPredictions}, reset=${resetPredictions}, rescore=${rescore}, targetGameweek=${targetGameweek ?? "all"}, skippedWrongGameweek=${skippedWrongGameweek}, skippedNoResult=${skippedNoResult}, skippedNoDeadline=${skippedNoDeadline}`
+  );
+
+  return {
+    processedFixtures,
+    processedPredictions,
+    resetPredictions,
+    changedUsers: Object.keys(userScoreAdjustments).length,
+    targetGameweek,
+    rescore,
+    skippedWrongGameweek,
+    skippedNoResult,
+    skippedNoDeadline,
+  };
+};
+
+exports.manualCalculatePoints = functions.https.onRequest(async (req, res) => {
+  try {
+    if (req.query.debug === "true") {
+      const fixturesSnap = await db.collection("fixtures").limit(100).get();
+      const predictionsSnap = await db.collection("predictions").limit(100).get();
+
+      const fixtures = fixturesSnap.docs.map((doc) => {
+        const fixture = doc.data();
+        return {
+          id: doc.id,
+          gameweek: fixture.gameweek,
+          gameWeek: fixture.gameWeek,
+          gameweekNumber: fixture.gameweekNumber,
+          week: fixture.week,
+          parsedGameweek: getFixtureGameweek(fixture),
+          homeTeam: fixture.homeTeam,
+          awayTeam: fixture.awayTeam,
+          homeTeamGoals: fixture.homeTeamGoals,
+          awayTeamGoals: fixture.awayTeamGoals,
+          homeScore: fixture.homeScore,
+          awayScore: fixture.awayScore,
+          parsedHomeGoals: getFixtureHomeGoals(fixture),
+          parsedAwayGoals: getFixtureAwayGoals(fixture),
+          hasDeadline: !!fixture.deadline,
+        };
+      });
+
+      const predictions = predictionsSnap.docs.map((doc) => {
+        const prediction = doc.data();
+        return {
+          id: doc.id,
+          fixtureId: prediction.fixtureId,
+          userId: prediction.userId,
+          gameweek: prediction.gameweek,
+          gameWeek: prediction.gameWeek,
+          parsedGameweek: getPredictionGameweek(prediction),
+          homeTeamGoals: prediction.homeTeamGoals,
+          awayTeamGoals: prediction.awayTeamGoals,
+          parsedHomeGoals: getPredictionHomeGoals(prediction),
+          parsedAwayGoals: getPredictionAwayGoals(prediction),
+          scoredPoints: prediction.scoredPoints,
+          awardedPoints: prediction.awardedPoints,
+          scoringReason: prediction.scoringReason,
+          submittedAt: prediction.submittedAt,
+        };
+      });
+
+      return res.status(200).json({
+        version: SCORING_FUNCTION_VERSION,
+        exportedFunction: "manualCalculatePoints",
+        fixtureCount: fixtures.length,
+        predictionCount: predictions.length,
+        fixtures,
+        predictions,
+      });
+    }
+    const rawGameweek = req.query.gameweek;
+    const targetGameweek = rawGameweek !== undefined ? Number(rawGameweek) : null;
+    const rescore = req.query.rescore === "true" || req.query.reset === "true";
+
+    if (rawGameweek !== undefined && !Number.isInteger(targetGameweek)) {
+      return res.status(400).send("Invalid gameweek. Example: ?gameweek=35");
     }
 
-    await calculatePoints();
-    res.status(200).send("Manual point calculation completed.");
+    const resetResult = rescore && targetGameweek !== null
+      ? await resetGameweekPredictionState(targetGameweek)
+      : {
+          resetPredictionDocs: 0,
+          resetUserScoreAdjustments: 0,
+        };
+
+    const result = rescore && targetGameweek !== null
+      ? await recalculateGameweekDirect(targetGameweek)
+      : await calculatePoints(targetGameweek, {
+          rescore,
+          sendPush: !rescore,
+          enforceDeadline: true,
+        });
+
+    result.resetPredictionDocs = resetResult.resetPredictionDocs;
+    result.resetUserScoreAdjustments = resetResult.resetUserScoreAdjustments;
+
+    if (rescore && targetGameweek !== null) {
+      return res
+        .status(200)
+        .send(
+          `version=${SCORING_FUNCTION_VERSION}. Direct reset + rescored GW${targetGameweek}. resetPredictionDocs=${result.resetPredictionDocs}, resetUserScoreAdjustments=${result.resetUserScoreAdjustments}, matchedPredictions=${result.matchedPredictions}, scoredPredictions=${result.scoredPredictions}, usersChangedFromRecalc=${result.changedUsers}, skippedNoFixtureId=${result.skippedNoFixtureId}, skippedFixtureMissing=${result.skippedFixtureMissing}, skippedFixtureNotComplete=${result.skippedFixtureNotComplete}, skippedPredictionScoreMissing=${result.skippedPredictionScoreMissing}`
+        );
+    }
+
+    if (targetGameweek !== null) {
+      return res
+        .status(200)
+        .send(
+          `version=${SCORING_FUNCTION_VERSION}. Manual point calculation completed for GW${targetGameweek}. fixtures=${result.processedFixtures}, predictions=${result.processedPredictions}, usersChanged=${result.changedUsers}, skippedWrongGameweek=${result.skippedWrongGameweek}, skippedNoResult=${result.skippedNoResult}, skippedNoDeadline=${result.skippedNoDeadline}`
+        );
+    }
+
+    return res
+      .status(200)
+      .send(
+        `version=${SCORING_FUNCTION_VERSION}. Manual point calculation completed. fixtures=${result.processedFixtures}, predictions=${result.processedPredictions}, usersChanged=${result.changedUsers}, skippedWrongGameweek=${result.skippedWrongGameweek}, skippedNoResult=${result.skippedNoResult}, skippedNoDeadline=${result.skippedNoDeadline}`
+      );
+exports.debugGameweeks = functions.https.onRequest(async (req, res) => {
+  try {
+    const fixturesSnap = await db.collection("fixtures").limit(50).get();
+
+    const fixtures = fixturesSnap.docs.map((doc) => {
+      const fixture = doc.data();
+      return {
+        id: doc.id,
+        gameweek: fixture.gameweek,
+        gameWeek: fixture.gameWeek,
+        gameweekNumber: fixture.gameweekNumber,
+        week: fixture.week,
+        parsedGameweek: getFixtureGameweek(fixture),
+        homeTeam: fixture.homeTeam,
+        awayTeam: fixture.awayTeam,
+        homeTeamGoals: fixture.homeTeamGoals,
+        awayTeamGoals: fixture.awayTeamGoals,
+        homeScore: fixture.homeScore,
+        awayScore: fixture.awayScore,
+        parsedHomeGoals: getFixtureHomeGoals(fixture),
+        parsedAwayGoals: getFixtureAwayGoals(fixture),
+        hasDeadline: !!fixture.deadline,
+      };
+    });
+
+    return res.status(200).json({
+      version: SCORING_FUNCTION_VERSION,
+      count: fixtures.length,
+      fixtures,
+    });
   } catch (e) {
-    console.error("Manual calculation error:", e);
-    res.status(500).send("Error during manual scoring.");
+    console.error("debugGameweeks error:", e);
+    return res.status(500).send(e.message);
+  }
+});
+  } catch (e) {
+    console.error("manualCalculatePoints error:", e);
+    return res.status(500).send(e.message);
   }
 });
 
-// === Rescore a gameweek (fixes predictions already marked scoredPoints:true with wrong points)
-// POST body: { "gameweek": 5 }
-exports.rescoreGameweek = functions.https.onRequest(async (req, res) => {
+exports.debugGameweeks = functions.https.onRequest(async (req, res) => {
   try {
-    const gameweek = Number(req.body?.gameweek ?? req.query?.gameweek);
-    if (!gameweek || isNaN(gameweek)) {
-      return res.status(400).send("Missing or invalid gameweek parameter.");
-    }
+    const fixturesSnap = await db.collection("fixtures").limit(50).get();
 
-    const db2 = admin.firestore();
-    const predictionsRef = db2.collection("predictions");
-    const fixturesRef = db2.collection("fixtures");
-    const usersRef = db2.collection("users");
+    const fixtures = fixturesSnap.docs.map((doc) => {
+      const fixture = doc.data();
+      return {
+        id: doc.id,
+        gameweek: fixture.gameweek,
+        gameWeek: fixture.gameWeek,
+        gameweekNumber: fixture.gameweekNumber,
+        week: fixture.week,
+        parsedGameweek: getFixtureGameweek(fixture),
+        homeTeam: fixture.homeTeam,
+        awayTeam: fixture.awayTeam,
+        homeTeamGoals: fixture.homeTeamGoals,
+        awayTeamGoals: fixture.awayTeamGoals,
+        homeScore: fixture.homeScore,
+        awayScore: fixture.awayScore,
+        parsedHomeGoals: getFixtureHomeGoals(fixture),
+        parsedAwayGoals: getFixtureAwayGoals(fixture),
+        hasDeadline: !!fixture.deadline,
+      };
+    });
 
-    // Get all fixtures for this gameweek that have actual goals set
-    const fixtureSnap = await fixturesRef.where("gameweek", "==", gameweek).get();
-    let rescored = 0;
-
-    for (const fixtureDoc of fixtureSnap.docs) {
-      const fixture = fixtureDoc.data();
-      const fixtureId = fixtureDoc.id;
-      const fixtureHome = Number(fixture.homeTeamGoals);
-      const fixtureAway = Number(fixture.awayTeamGoals);
-      if (isNaN(fixtureHome) || fixtureHome < 0 || isNaN(fixtureAway) || fixtureAway < 0) continue;
-
-      const actualOutcome = fixtureHome === fixtureAway ? "draw" : fixtureHome > fixtureAway ? "home" : "away";
-
-      // Rescore ALL predictions for this fixture (both scored and unscored)
-      const predsSnap = await predictionsRef.where("fixtureId", "==", fixtureId).get();
-      for (const predDoc of predsSnap.docs) {
-        const pred = predDoc.data();
-        const prevPoints = Number(pred.awardedPoints ?? 0);
-        const predHome = Number(pred.homeTeamGoals);
-        const predAway = Number(pred.awayTeamGoals);
-        const predictedOutcome = predHome === predAway ? "draw" : predHome > predAway ? "home" : "away";
-
-        let newPoints = 0;
-        if (predHome === fixtureHome && predAway === fixtureAway) newPoints = 3;
-        else if (predictedOutcome === actualOutcome) newPoints = 1;
-        if (pred.captainUsed && newPoints > 0) newPoints *= 2;
-
-        const diff = newPoints - prevPoints;
-        console.log(`Rescore GW${gameweek} fixture ${fixtureId}: user ${pred.userId} ${prevPoints}→${newPoints} (diff ${diff})`);
-
-        await predDoc.ref.update({ scoredPoints: true, isCorrect: newPoints > 0, awardedPoints: newPoints });
-        if (diff !== 0) {
-          await usersRef.doc(pred.userId).update({
-            score: admin.firestore.FieldValue.increment(diff),
-            weeklyScore: admin.firestore.FieldValue.increment(diff),
-            monthlyScore: admin.firestore.FieldValue.increment(diff),
-          });
-        }
-        rescored++;
-      }
-    }
-
-    await updateGameweekWinner(gameweek);
-    res.status(200).send(`Rescored ${rescored} predictions for GW${gameweek}.`);
+    return res.status(200).json({
+      version: SCORING_FUNCTION_VERSION,
+      count: fixtures.length,
+      fixtures,
+    });
   } catch (e) {
-    console.error("rescoreGameweek error:", e);
-    res.status(500).send(`Error: ${e.message}`);
+    console.error("debugGameweeks error:", e);
+    return res.status(500).send(e.message);
+  }
+});
+
+exports.recalculateGameweek = functions.https.onRequest(async (req, res) => {
+  try {
+    const rawGameweek = req.query.gameweek;
+    const targetGameweek = rawGameweek !== undefined ? Number(rawGameweek) : 35;
+
+    if (!Number.isInteger(targetGameweek)) {
+      return res.status(400).send("Invalid gameweek. Example: ?gameweek=35");
+    }
+
+    const result = await calculatePoints(targetGameweek, {
+      rescore: true,
+      sendPush: false,
+      enforceDeadline: false,
+    });
+
+    return res.status(200).json({
+      version: SCORING_FUNCTION_VERSION,
+      message: `Rescored GW${targetGameweek}`,
+      ...result,
+    });
+  } catch (e) {
+    console.error("recalculateGameweek error:", e);
+    return res.status(500).send(e.message);
   }
 });

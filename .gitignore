@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+functions/service-account.json
+functions/the-big-6ix-firebase-adminsdk-fbsvc-5eaba1d2e1.json
+functions/fix-gw35.js

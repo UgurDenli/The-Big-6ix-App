@@ -47,7 +47,10 @@ class DiscordAuthViewModel : ViewModel() {
                         "score" to 0,
                         "weeklyScore" to 0,
                         "monthlyScore" to 0,
-                        "completedOnboarding" to false
+                        "completedOnboarding" to false,
+                        "wildcardAvailable" to true,
+                        "doubleDownAvailable" to true,
+                        "captainAvailable" to true
                     )).await()
                     needsOnboarding = true
                 }

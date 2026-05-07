@@ -21,11 +21,30 @@ class HomeViewModel : ViewModel() {
     private val _leaderboard = MutableStateFlow<List<LeaderboardUser>>(emptyList())
     val leaderboard: StateFlow<List<LeaderboardUser>> = _leaderboard
 
+    private val _latestGwWinnerUid = MutableStateFlow<String?>(null)
+    val latestGwWinnerUid: StateFlow<String?> = _latestGwWinnerUid
+
+    private val _latestGwNumber = MutableStateFlow<Int?>(null)
+    val latestGwNumber: StateFlow<Int?> = _latestGwNumber
+
     private var listenerRegistration: ListenerRegistration? = null
+    private var gwWinnerListener: ListenerRegistration? = null
     private var previousTopUid: String? = null
 
     init {
         startRealtimeListener()
+        startGwWinnerListener()
+    }
+
+    private fun startGwWinnerListener() {
+        gwWinnerListener = db.collection("gameweekWinners")
+            .orderBy("gameweek", Query.Direction.DESCENDING)
+            .limit(1)
+            .addSnapshotListener { snap, _ ->
+                val doc = snap?.documents?.firstOrNull() ?: return@addSnapshotListener
+                _latestGwWinnerUid.value = doc.getString("userId")
+                _latestGwNumber.value = doc.getLong("gameweek")?.toInt()
+            }
     }
 
     private fun startRealtimeListener() {
@@ -54,5 +73,6 @@ class HomeViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         listenerRegistration?.remove()
+        gwWinnerListener?.remove()
     }
 }

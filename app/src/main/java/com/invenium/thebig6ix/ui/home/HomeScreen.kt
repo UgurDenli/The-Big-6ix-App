@@ -27,6 +27,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
 import com.invenium.thebig6ix.R
 import com.invenium.thebig6ix.ui.home.LeaderboardUser
+import androidx.compose.ui.text.style.TextAlign
 
 private val Gold    = Color(0xFFFFD700)
 private val Silver  = Color(0xFFC0C0C0)
@@ -40,6 +41,8 @@ fun HomeScreen(
     onViewFullLeaderboard: () -> Unit = {}
 ) {
     val leaderboard by viewModel.leaderboard.collectAsState()
+    val latestGwWinnerUid by viewModel.latestGwWinnerUid.collectAsState()
+    val latestGwNumber by viewModel.latestGwNumber.collectAsState()
     val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
@@ -92,9 +95,10 @@ fun HomeScreen(
                 contentPadding = PaddingValues(vertical = 12.dp)
             ) {
                 itemsIndexed(leaderboard.take(5)) { index, user ->
+                    val isGwWinner = user.uid == latestGwWinnerUid
                     when (index) {
-                        0 -> TopPlayerCard(user = user, ironManFont = ironManFont)
-                        else -> LeaderboardRow(index = index, user = user, ironManFont = ironManFont)
+                        0 -> TopPlayerCard(user = user, isGwWinner = isGwWinner, gwNumber = latestGwNumber, ironManFont = ironManFont)
+                        else -> LeaderboardRow(index = index, user = user, isGwWinner = isGwWinner, gwNumber = latestGwNumber, ironManFont = ironManFont)
                     }
                 }
             }
@@ -129,7 +133,20 @@ fun HomeScreen(
 }
 
 @Composable
-private fun TopPlayerCard(user: LeaderboardUser, ironManFont: FontFamily) {
+private fun GwWinnerBadge(gwNumber: Int?, ironManFont: FontFamily) {
+    val label = if (gwNumber != null) "⚡ GW$gwNumber" else "⚡ GW"
+    Box(
+        modifier = Modifier
+            .background(Color(0xFF1A1200), RoundedCornerShape(4.dp))
+            .border(0.5.dp, Gold.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(label, color = Gold, fontFamily = ironManFont, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun TopPlayerCard(user: LeaderboardUser, isGwWinner: Boolean, gwNumber: Int?, ironManFont: FontFamily) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1400)),
@@ -180,13 +197,19 @@ private fun TopPlayerCard(user: LeaderboardUser, ironManFont: FontFamily) {
             Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = user.name,
-                    color = Gold,
-                    fontFamily = ironManFont,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = user.name,
+                        color = Gold,
+                        fontFamily = ironManFont,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    if (isGwWinner) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        GwWinnerBadge(gwNumber, ironManFont)
+                    }
+                }
                 if (user.isNewLeader) {
                     Text("NEW LEADER", color = Gold.copy(alpha = 0.7f), fontFamily = ironManFont, fontSize = 11.sp)
                 } else {
@@ -212,6 +235,8 @@ private fun TopPlayerCard(user: LeaderboardUser, ironManFont: FontFamily) {
 private fun LeaderboardRow(
     index: Int,
     user: LeaderboardUser,
+    isGwWinner: Boolean,
+    gwNumber: Int?,
     ironManFont: FontFamily
 ) {
     val rankColor = when (index) {
@@ -271,13 +296,13 @@ private fun LeaderboardRow(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Text(
-                text = user.name,
-                color = Color.White,
-                fontFamily = ironManFont,
-                fontSize = 15.sp,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = user.name, color = Color.White, fontFamily = ironManFont, fontSize = 15.sp)
+                if (isGwWinner) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    GwWinnerBadge(gwNumber, ironManFont)
+                }
+            }
 
             Text(
                 text = "${user.totalScore} pts",
