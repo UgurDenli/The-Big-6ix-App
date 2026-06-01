@@ -28,8 +28,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
 import com.invenium.thebig6ix.R
+import com.invenium.thebig6ix.ui.home.ShimmerBox
 
-private val Gold = Color(0xFFFFD700)
+private val Gold   = Color(0xFFFFD700)
+private val Silver = Color(0xFFC0C0C0)
+private val Bronze = Color(0xFFCD7F32)
+private val Dim    = Color(0xFF888888)
+private val CardBg = Color(0xFF111111)
 
 @Composable
 fun LeaderboardScreen(
@@ -37,49 +42,58 @@ fun LeaderboardScreen(
     onBack: () -> Unit = {},
     onViewUserPredictions: (String) -> Unit = {}
 ) {
-    val communityUsers by viewModel.communityUsers.collectAsState()
-    val panelScores by viewModel.panelScores.collectAsState()
-    val communityPage by viewModel.communityPage.collectAsState()
-    val panelPage by viewModel.panelPage.collectAsState()
+    val communityUsers  by viewModel.communityUsers.collectAsState()
+    val panelScores     by viewModel.panelScores.collectAsState()
+    val communityPage   by viewModel.communityPage.collectAsState()
+    val panelPage       by viewModel.panelPage.collectAsState()
     val latestGwWinnerUid by viewModel.latestGwWinnerUid.collectAsState()
-    val latestGwNumber by viewModel.latestGwNumber.collectAsState()
-    val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
+    val latestGwNumber  by viewModel.latestGwNumber.collectAsState()
+    val isLoading       by viewModel.isLoading.collectAsState()
+    val ironManFont     = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
 
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Community Scores", "Panel Scores")
+    val tabs = listOf("Community", "Panel")
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Header
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = "Leaderboard",
-                    color = Color(0xFFFFD700),
-                    fontFamily = ironManFont,
-                    fontSize = 24.sp
-                )
+                Text("LEADERBOARD", color = Gold, fontFamily = ironManFont, fontSize = 22.sp, letterSpacing = 2.sp)
                 Spacer(modifier = Modifier.weight(1f))
                 Spacer(modifier = Modifier.width(48.dp))
             }
 
+            // Tabs
             TabRow(
                 selectedTabIndex = selectedTab,
-                containerColor = Color.Black,
-                contentColor = Color(0xFFFFD700)
+                containerColor = Color(0xFF0D0D0D),
+                contentColor = Gold,
+                indicator = { tabPositions ->
+                    if (selectedTab < tabPositions.size) {
+                        Box(
+                            Modifier
+                                .tabIndicatorOffset(tabPositions[selectedTab])
+                                .height(2.dp)
+                                .background(Gold)
+                        )
+                    }
+                },
+                divider = {}
             ) {
                 tabs.forEachIndexed { index, label ->
                     Tab(
                         selected = selectedTab == index,
-                        onClick = {
+                        onClick  = {
                             selectedTab = index
                             if (index == 0) viewModel.setCommunityPage(0)
                             else viewModel.setPanelPage(0)
@@ -87,79 +101,158 @@ fun LeaderboardScreen(
                         text = {
                             Text(
                                 label,
-                                color = if (selectedTab == index) Color(0xFFFFD700) else Color.White,
+                                color = if (selectedTab == index) Gold else Dim,
                                 fontFamily = ironManFont,
-                                fontSize = 14.sp
+                                fontSize = 13.sp
                             )
                         }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            if (selectedTab == 0) {
-                val pageCount = viewModel.communityPageCount()
-                val start = communityPage * viewModel.pageSize
-                val pageItems = communityUsers.drop(start).take(viewModel.pageSize)
-                val globalOffset = start
-
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    itemsIndexed(pageItems) { localIndex, user ->
-                        val index = globalOffset + localIndex
-                        LeaderboardRow(
-                            rank = index + 1,
-                            name = user.name,
-                            score = user.score,
-                            profileImageUrl = user.profileImageUrl,
-                            uid = user.uid,
-                            isGwWinner = user.uid == latestGwWinnerUid,
-                            gwNumber = latestGwNumber,
-                            ironManFont = ironManFont,
-                            onClick = { onViewUserPredictions(user.uid) }
-                        )
-                    }
-                }
-
-                PaginationControls(
-                    currentPage = communityPage,
-                    pageCount = pageCount,
-                    ironManFont = ironManFont,
-                    onPrev = { viewModel.setCommunityPage(communityPage - 1) },
-                    onNext = { viewModel.setCommunityPage(communityPage + 1) }
+            if (isLoading) {
+                LeaderboardSkeletonList()
+            } else if (selectedTab == 0) {
+                CommunityTab(
+                    users          = communityUsers,
+                    page           = communityPage,
+                    pageSize       = viewModel.pageSize,
+                    pageCount      = viewModel.communityPageCount(),
+                    latestGwWinnerUid = latestGwWinnerUid,
+                    latestGwNumber = latestGwNumber,
+                    currentUserUid = viewModel.currentUserUid,
+                    currentUserRank = viewModel.currentUserRank(),
+                    currentUserScore = viewModel.currentUserScore(),
+                    ironManFont    = ironManFont,
+                    onPrev         = { viewModel.setCommunityPage(communityPage - 1) },
+                    onNext         = { viewModel.setCommunityPage(communityPage + 1) },
+                    onRowClick     = onViewUserPredictions
                 )
             } else {
-                val pageCount = viewModel.panelPageCount()
-                val start = panelPage * viewModel.pageSize
-                val pageItems = panelScores.drop(start).take(viewModel.pageSize)
-                val globalOffset = start
-
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    itemsIndexed(pageItems) { localIndex, panel ->
-                        val index = globalOffset + localIndex
-                        LeaderboardRow(
-                            rank = index + 1,
-                            name = panel.name,
-                            score = panel.score,
-                            profileImageUrl = null,
-                            uid = null,
-                            isGwWinner = false,
-                            gwNumber = null,
-                            ironManFont = ironManFont,
-                            onClick = {}
-                        )
-                    }
-                }
-
-                PaginationControls(
-                    currentPage = panelPage,
-                    pageCount = pageCount,
+                PanelTab(
+                    panels    = panelScores,
+                    page      = panelPage,
+                    pageSize  = viewModel.pageSize,
+                    pageCount = viewModel.panelPageCount(),
                     ironManFont = ironManFont,
-                    onPrev = { viewModel.setPanelPage(panelPage - 1) },
-                    onNext = { viewModel.setPanelPage(panelPage + 1) }
+                    onPrev    = { viewModel.setPanelPage(panelPage - 1) },
+                    onNext    = { viewModel.setPanelPage(panelPage + 1) }
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CommunityTab(
+    users: List<UserScore>,
+    page: Int,
+    pageSize: Int,
+    pageCount: Int,
+    latestGwWinnerUid: String?,
+    latestGwNumber: Int?,
+    currentUserUid: String?,
+    currentUserRank: Int,
+    currentUserScore: UserScore?,
+    ironManFont: FontFamily,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onRowClick: (String) -> Unit
+) {
+    val start      = page * pageSize
+    val pageItems  = users.drop(start).take(pageSize)
+    val currentInPage = pageItems.any { it.uid == currentUserUid }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(bottom = 8.dp)
+        ) {
+            itemsIndexed(pageItems) { localIdx, user ->
+                val globalRank = start + localIdx + 1
+                LeaderboardRow(
+                    rank           = globalRank,
+                    name           = user.name,
+                    score          = user.score,
+                    profileImageUrl = user.profileImageUrl,
+                    uid            = user.uid,
+                    isGwWinner     = user.uid == latestGwWinnerUid,
+                    gwNumber       = latestGwNumber,
+                    isCurrentUser  = user.uid == currentUserUid,
+                    ironManFont    = ironManFont,
+                    onClick        = { onRowClick(user.uid) }
+                )
+            }
+        }
+
+        // Pinned "YOU" row — only shown when current user is not visible on this page
+        if (!currentInPage && currentUserScore != null && currentUserRank > 0) {
+            HorizontalDivider(color = Color(0xFF2A2A2A))
+            PinnedYouRow(
+                rank       = currentUserRank,
+                user       = currentUserScore,
+                ironManFont = ironManFont
+            )
+        }
+
+        PaginationControls(
+            currentPage = page,
+            pageCount   = pageCount,
+            ironManFont = ironManFont,
+            onPrev      = onPrev,
+            onNext      = onNext
+        )
+    }
+}
+
+@Composable
+private fun PanelTab(
+    panels: List<PanelScore>,
+    page: Int,
+    pageSize: Int,
+    pageCount: Int,
+    ironManFont: FontFamily,
+    onPrev: () -> Unit,
+    onNext: () -> Unit
+) {
+    val start     = page * pageSize
+    val pageItems = panels.drop(start).take(pageSize)
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(bottom = 8.dp)
+        ) {
+            itemsIndexed(pageItems) { localIdx, panel ->
+                LeaderboardRow(
+                    rank            = start + localIdx + 1,
+                    name            = panel.name,
+                    score           = panel.score,
+                    profileImageUrl = null,
+                    uid             = null,
+                    isGwWinner      = false,
+                    gwNumber        = null,
+                    isCurrentUser   = false,
+                    ironManFont     = ironManFont,
+                    onClick         = {}
+                )
+            }
+        }
+        PaginationControls(
+            currentPage = page,
+            pageCount   = pageCount,
+            ironManFont = ironManFont,
+            onPrev      = onPrev,
+            onNext      = onNext
+        )
     }
 }
 
@@ -172,41 +265,53 @@ private fun LeaderboardRow(
     uid: String?,
     isGwWinner: Boolean,
     gwNumber: Int?,
+    isCurrentUser: Boolean,
     ironManFont: FontFamily,
     onClick: () -> Unit
 ) {
-    val borderColor = when (rank) {
-        1 -> Color(0xFFFFD700)
-        2 -> Color(0xFFC0C0C0)
-        3 -> Color(0xFFCD7F32)
-        else -> Color.DarkGray
+    val borderColor = when {
+        isCurrentUser -> Color(0xFF4CAF50)
+        rank == 1     -> Gold
+        rank == 2     -> Silver
+        rank == 3     -> Bronze
+        else          -> Color(0xFF2A2A2A)
+    }
+    val bgColor = when {
+        isCurrentUser -> Color(0xFF0A1A0A)
+        rank == 1     -> Color(0xFF1A1400)
+        else          -> CardBg
+    }
+    val rankLabel = when (rank) {
+        1 -> "🥇"; 2 -> "🥈"; 3 -> "🥉"; else -> "#$rank"
     }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .border(BorderStroke(2.dp, borderColor))
             .clickable(enabled = uid != null, onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(if (rank <= 3 || isCurrentUser) 1.5.dp else 1.dp, borderColor)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (rank == 1) "🏆" else "#$rank",
+                text = rankLabel,
                 color = borderColor,
                 fontFamily = ironManFont,
-                fontSize = 18.sp,
+                fontSize = if (rank <= 3) 20.sp else 14.sp,
                 modifier = Modifier.width(44.dp)
             )
 
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
-                    .border(2.dp, borderColor, CircleShape)
+                    .border(1.5.dp, borderColor, CircleShape)
+                    .background(Color(0xFF222222)),
+                contentAlignment = Alignment.Center
             ) {
                 if (profileImageUrl != null) {
                     Image(
@@ -224,31 +329,97 @@ private fun LeaderboardRow(
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = name, color = Color.White, fontFamily = ironManFont, fontSize = 16.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = name,
+                        color = if (isCurrentUser) Color(0xFF4CAF50) else Color.White,
+                        fontFamily = ironManFont,
+                        fontSize = 15.sp
+                    )
+                    if (isCurrentUser) {
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF0A1A0A), RoundedCornerShape(4.dp))
+                                .border(0.5.dp, Color(0xFF4CAF50).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text("YOU", color = Color(0xFF4CAF50), fontFamily = ironManFont, fontSize = 9.sp)
+                        }
+                    }
+                }
                 if (isGwWinner && gwNumber != null) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Box(
                         modifier = Modifier
                             .background(Color(0xFF1A1200), RoundedCornerShape(4.dp))
-                            .border(0.5.dp, Gold.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .border(0.5.dp, Gold.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
                     ) {
-                        Text("⚡ GW$gwNumber", color = Gold, fontFamily = ironManFont, fontSize = 10.sp)
+                        Text("⚡ GW$gwNumber", color = Gold, fontFamily = ironManFont, fontSize = 9.sp)
                     }
                 }
             }
 
             Text(
                 text = "$score pts",
-                color = Color(0xFFFFD700),
+                color = Gold,
                 fontFamily = ironManFont,
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
+                fontSize = 15.sp
             )
         }
+    }
+}
+
+@Composable
+private fun PinnedYouRow(rank: Int, user: UserScore, ironManFont: FontFamily) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0A1A0A))
+            .padding(horizontal = 28.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "#$rank",
+            color = Color(0xFF4CAF50),
+            fontFamily = ironManFont,
+            fontSize = 14.sp,
+            modifier = Modifier.width(44.dp)
+        )
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .border(1.5.dp, Color(0xFF4CAF50), CircleShape)
+                .background(Color(0xFF222222)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (user.profileImageUrl != null) {
+                Image(
+                    painter = rememberAsyncImagePainter(user.profileImageUrl),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_account),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(user.name, color = Color(0xFF4CAF50), fontFamily = ironManFont, fontSize = 14.sp)
+            Text("Your position", color = Dim, fontSize = 10.sp)
+        }
+        Text("${user.score} pts", color = Gold, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }
 
@@ -261,21 +432,46 @@ private fun PaginationControls(
     onNext: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         TextButton(onClick = onPrev, enabled = currentPage > 0) {
-            Text("← Prev", color = if (currentPage > 0) Color(0xFFFFD700) else Color.DarkGray, fontFamily = ironManFont)
+            Text("← PREV", color = if (currentPage > 0) Gold else Color(0xFF333333), fontFamily = ironManFont, fontSize = 12.sp)
         }
         Text(
-            text = "Page ${currentPage + 1} of $pageCount",
-            color = Color.White,
+            text = "${currentPage + 1} / $pageCount",
+            color = Dim,
             fontFamily = ironManFont,
-            fontSize = 14.sp
+            fontSize = 13.sp
         )
         TextButton(onClick = onNext, enabled = currentPage < pageCount - 1) {
-            Text("Next →", color = if (currentPage < pageCount - 1) Color(0xFFFFD700) else Color.DarkGray, fontFamily = ironManFont)
+            Text("NEXT →", color = if (currentPage < pageCount - 1) Gold else Color(0xFF333333), fontFamily = ironManFont, fontSize = 12.sp)
         }
     }
 }
+
+@Composable
+private fun LeaderboardSkeletonList() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        repeat(8) {
+            ShimmerBox(
+                Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .clip(RoundedCornerShape(10.dp))
+            )
+        }
+    }
+}
+
+// Expose tabIndicatorOffset
+private fun Modifier.tabIndicatorOffset(tabPosition: androidx.compose.material3.TabPosition): Modifier =
+    this.wrapContentSize(Alignment.BottomStart)
+        .offset(x = tabPosition.left)
+        .width(tabPosition.width)

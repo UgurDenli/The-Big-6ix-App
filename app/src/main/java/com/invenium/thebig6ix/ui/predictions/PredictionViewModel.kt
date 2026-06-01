@@ -44,22 +44,37 @@ class PredictionViewModel : ViewModel() {
     private val _captainAvailable = MutableStateFlow(false)
     val captainAvailable: StateFlow<Boolean> = _captainAvailable
 
-    val isAdmin: Boolean
-        get() = auth.currentUser?.email == "ugurdenli30@gmail.com"
+    private val _isAdmin = MutableStateFlow(false)
+    val isAdminFlow: StateFlow<Boolean> = _isAdmin
+
+    // Expose as a plain val for places that read it synchronously
+    val isAdmin: Boolean get() = _isAdmin.value
+
+    private val _isLoading = MutableStateFlow(true)
+    val isLoading: StateFlow<Boolean> = _isLoading
 
     init {
         fetchFixtures(forceRefresh = true)
         fetchUserPredictions(forceRefresh = true)
         fetchTokenStatus()
+        checkAdminStatus()
+    }
+
+    private fun checkAdminStatus() {
+        val user = auth.currentUser ?: return
+        if (user.email == "ugurdenli30@gmail.com") { _isAdmin.value = true; return }
+        db.collection("users").document(user.uid)
+            .get()
+            .addOnSuccessListener { doc -> _isAdmin.value = doc.getBoolean("isAdmin") == true }
     }
 
     private fun fetchTokenStatus() {
         val userId = auth.currentUser?.uid ?: return
         db.collection("users").document(userId).get()
             .addOnSuccessListener { doc ->
-                _wildcardAvailable.value = doc.getBoolean("wildcardAvailable") ?: false
-                _doubleDownAvailable.value = doc.getBoolean("doubleDownAvailable") ?: false
-                _captainAvailable.value = doc.getBoolean("captainAvailable") ?: false
+                _wildcardAvailable.value = doc.getBoolean("wildcardAvailable") ?: true
+                _doubleDownAvailable.value = doc.getBoolean("doubleDownAvailable") ?: true
+                _captainAvailable.value = doc.getBoolean("captainAvailable") ?: true
             }
     }
 
@@ -126,16 +141,19 @@ class PredictionViewModel : ViewModel() {
                 }
                 _allFixtures.value = list
                 updateAvailableGameweeks(list)
+                _isLoading.value = false
             }
     }
 
     private fun updateAvailableGameweeks(fixtures: List<FootballFixture>) {
         val now = Date()
-        val upcoming = fixtures
+        val allUpcoming = fixtures
             .filter { it.deadline?.toDate()?.after(now) == true }
             .map { it.gameweek }
             .distinct()
             .sorted()
+
+        val upcoming = listOfNotNull(allUpcoming.firstOrNull())
 
         _availableGameweeks.value = upcoming
 
@@ -283,6 +301,28 @@ class PredictionViewModel : ViewModel() {
 
                 _captainAvailable.value = false
                 fetchUserPredictions(forceRefresh = true)
+                onSuccess()
+            } catch (e: Exception) {
+                onFailure("Error: ${e.message}")
+            }
+        }
+    }
+
+    fun submitDoubleDown(
+        gameweek: Int,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        val userId = auth.currentUser?.uid ?: return onFailure("User not logged in")
+        viewModelScope.launch {
+            try {
+                db.collection("users").document(userId)
+                    .update(mapOf(
+                        "doubleDownAvailable" to false,
+                        "doubleDownUsedGameweek" to gameweek
+                    ))
+                    .await()
+                _doubleDownAvailable.value = false
                 onSuccess()
             } catch (e: Exception) {
                 onFailure("Error: ${e.message}")

@@ -32,9 +32,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.rememberAsyncImagePainter
 import com.google.firebase.auth.FirebaseAuth
@@ -57,6 +59,9 @@ fun ProfileScreen(navController: NavController) {
     val scope     = rememberCoroutineScope()
     val context   = LocalContext.current
     val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
+
+    val profileStatsViewModel: ProfileViewModel = viewModel()
+    val stats by profileStatsViewModel.stats.collectAsState()
 
     var profileImageUrl by remember { mutableStateOf("") }
     var displayName     by remember { mutableStateOf("User") }
@@ -188,6 +193,40 @@ fun ProfileScreen(navController: NavController) {
                 }
             }
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Stats row
+            if (!stats.isLoading) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    StatMiniCard(
+                        label = "ACCURACY",
+                        value = "${stats.accuracyPercent}%",
+                        sub = "correct scores",
+                        color = Gold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatMiniCard(
+                        label = "STREAK",
+                        value = "${stats.currentStreak}",
+                        sub = if (stats.currentStreak == 1) "gameweek" else "gameweeks",
+                        color = Color(0xFF4CAF50),
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatMiniCard(
+                        label = "RESULTS",
+                        value = "${stats.resultAccuracyPercent}%",
+                        sub = "correct results",
+                        color = Color(0xFF4B9EFF),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
 
             // Action section
@@ -238,6 +277,35 @@ fun ProfileScreen(navController: NavController) {
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun StatMiniCard(
+    label: String,
+    value: String,
+    sub: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.3f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(label, color = Color(0xFF888888), fontSize = 8.sp, letterSpacing = 1.sp, fontFamily = ironManFont)
+            Spacer(Modifier.height(4.dp))
+            Text(value, color = color, fontFamily = ironManFont, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(sub, color = Color(0xFF555555), fontSize = 9.sp, textAlign = TextAlign.Center, lineHeight = 11.sp)
         }
     }
 }

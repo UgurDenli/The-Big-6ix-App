@@ -1,6 +1,7 @@
 package com.invenium.thebig6ix.ui.leaderboard
 
 import androidx.lifecycle.ViewModel
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
@@ -20,7 +21,11 @@ data class PanelScore(
 )
 
 class LeaderboardViewModel : ViewModel() {
-    private val db = FirebaseFirestore.getInstance()
+    private val db  = FirebaseFirestore.getInstance()
+    val currentUserUid: String? = FirebaseAuth.getInstance().currentUser?.uid
+
+    private val _isLoading = MutableStateFlow(true)
+    val isLoading: StateFlow<Boolean> = _isLoading
 
     private val _communityUsers = MutableStateFlow<List<UserScore>>(emptyList())
     val communityUsers: StateFlow<List<UserScore>> = _communityUsers
@@ -76,6 +81,7 @@ class LeaderboardViewModel : ViewModel() {
                         profileImageUrl = doc.getString("profileImageUrl")
                     )
                 }
+                _isLoading.value = false
             }
     }
 
@@ -95,6 +101,19 @@ class LeaderboardViewModel : ViewModel() {
                     .sortedByDescending { it.score }
                 _panelScores.value = panels
             }
+    }
+
+    /** Global (1-based) rank of the current user across the full community list */
+    fun currentUserRank(): Int {
+        val uid = currentUserUid ?: return 0
+        val idx = _communityUsers.value.indexOfFirst { it.uid == uid }
+        return if (idx >= 0) idx + 1 else 0
+    }
+
+    /** Current user's UserScore, or null if not found */
+    fun currentUserScore(): UserScore? {
+        val uid = currentUserUid ?: return null
+        return _communityUsers.value.firstOrNull { it.uid == uid }
     }
 
     fun setCommunityPage(page: Int) { _communityPage.value = page }

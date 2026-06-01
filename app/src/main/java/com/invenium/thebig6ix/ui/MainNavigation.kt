@@ -2,7 +2,13 @@ package com.invenium.thebig6ix.ui
 
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -25,6 +31,7 @@ import com.invenium.thebig6ix.ui.profile.ProfileSettingsScreen
 import com.invenium.thebig6ix.ui.profile.EmailPreferencesScreen
 import com.invenium.thebig6ix.ui.profile.PushNotificationsScreen
 import com.invenium.thebig6ix.ui.onboarding.OnboardingScreen
+import java.util.Date
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -32,6 +39,21 @@ fun MainNavigation() {
     val navController = rememberNavController()
     val startDestination = remember {
         if (FirebaseAuth.getInstance().currentUser != null) "home" else "login"
+    }
+
+    // Only show splash for already-logged-in users (not the login/onboarding flow)
+    val isLoggedIn = remember { FirebaseAuth.getInstance().currentUser != null }
+    var showSplash by remember { mutableStateOf(isLoggedIn) }
+
+    val predictionViewModel: PredictionViewModel = viewModel()
+    val pfFixtures by predictionViewModel.fixtures.collectAsState()
+    val pfPredictions by predictionViewModel.userPredictions.collectAsState()
+    val hasUnpredicted = remember(pfFixtures, pfPredictions) {
+        val now = Date()
+        pfFixtures.any { f ->
+            f.deadline?.toDate()?.after(now) == true &&
+            pfPredictions.none { it.fixtureId == f.id }
+        }
     }
 
     val screens = listOf(
@@ -44,7 +66,10 @@ fun MainNavigation() {
     val currentRoute = navBackStackEntry?.destination?.route
     val showBottomBar = currentRoute in listOf("home", "predictions", "profile")
 
+    Box(modifier = Modifier.fillMaxSize()) {
+
     Scaffold(
+        containerColor = Color.Black,
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar(containerColor = Color.Black, tonalElevation = 8.dp) {
@@ -52,11 +77,15 @@ fun MainNavigation() {
                         val selected = currentRoute == screen.route
                         NavigationBarItem(
                             icon = {
-                                Icon(
-                                    screen.icon,
-                                    contentDescription = screen.label,
-                                    tint = if (selected) Color(0xFFFFD700) else Color.White
-                                )
+                                if (screen.route == "predictions" && hasUnpredicted) {
+                                    BadgedBox(badge = {
+                                        Badge(containerColor = Color(0xFFFFD700), modifier = Modifier.size(8.dp)) {}
+                                    }) {
+                                        Icon(screen.icon, contentDescription = screen.label, tint = if (selected) Color(0xFFFFD700) else Color.White)
+                                    }
+                                } else {
+                                    Icon(screen.icon, contentDescription = screen.label, tint = if (selected) Color(0xFFFFD700) else Color.White)
+                                }
                             },
                             label = {
                                 Text(
@@ -109,7 +138,6 @@ fun MainNavigation() {
                 })
             }
             composable("predictions") {
-                val predictionViewModel = viewModel<PredictionViewModel>()
                 PredictionScreen(viewModel = predictionViewModel)
             }
             composable("leaderboard") {
@@ -141,6 +169,17 @@ fun MainNavigation() {
             }
         }
     }
+
+    // Splash overlay — sits on top of the Scaffold, fades out when done
+    AnimatedVisibility(
+        visible = showSplash,
+        enter   = androidx.compose.animation.EnterTransition.None,
+        exit    = fadeOut(animationSpec = tween(380))
+    ) {
+        SplashScreen(onFinished = { showSplash = false })
+    }
+
+    } // end outer Box
 }
 
 data class Screen(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
