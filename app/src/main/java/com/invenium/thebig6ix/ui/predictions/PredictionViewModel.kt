@@ -2,8 +2,12 @@ package com.invenium.thebig6ix.ui.predictions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Source
 import com.invenium.thebig6ix.data.FootballFixture
 import kotlinx.coroutines.flow.*
@@ -41,6 +45,11 @@ class PredictionViewModel : ViewModel() {
     private val _doubleDownAvailable = MutableStateFlow(false)
     val doubleDownAvailable: StateFlow<Boolean> = _doubleDownAvailable
 
+    // Which gameweek Double Down is locked in for (null if unused). Drives the
+    // "ACTIVE THIS GW" badge so users can see where their 2× is applied.
+    private val _doubleDownUsedGameweek = MutableStateFlow<Int?>(null)
+    val doubleDownUsedGameweek: StateFlow<Int?> = _doubleDownUsedGameweek
+
     private val _captainAvailable = MutableStateFlow(false)
     val captainAvailable: StateFlow<Boolean> = _captainAvailable
 
@@ -53,11 +62,89 @@ class PredictionViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading
 
+    private var fixturesListener: ListenerRegistration? = null
+
     init {
-        fetchFixtures(forceRefresh = true)
+        startFixturesListener()
         fetchUserPredictions(forceRefresh = true)
         fetchTokenStatus()
         checkAdminStatus()
+    }
+
+    private fun buildFixtureList(documents: List<DocumentSnapshot>): List<FootballFixture> {
+        val list = documents.mapNotNull { doc ->
+            try {
+                val homeTeam = doc.getString("homeTeam") ?: run {
+                    Log.w("PredictionVM", "Skipping ${doc.id} — missing homeTeam")
+                    return@mapNotNull null
+                }
+                val awayTeam = doc.getString("awayTeam") ?: run {
+                    Log.w("PredictionVM", "Skipping ${doc.id} — missing awayTeam")
+                    return@mapNotNull null
+                }
+                FootballFixture(
+                    id            = doc.id,
+                    homeTeam      = homeTeam,
+                    awayTeam      = awayTeam,
+                    date          = doc.getString("date")       ?: "",
+                    homeTeamGoals = doc.getLong("homeTeamGoals")?.toInt() ?: -1,
+                    awayTeamGoals = doc.getLong("awayTeamGoals")?.toInt() ?: -1,
+                    winner        = doc.getString("winner")     ?: "",
+                    deadline      = doc.getTimestamp("deadline"),
+                    gameweek      = doc.getLong("gameweek")?.toInt() ?: 0
+                )
+            } catch (e: Exception) {
+                Log.e("PredictionVM", "Parse exception for ${doc.id}: ${e.message}", e)
+                null
+            }
+        }
+        Log.d("PredictionVM", "buildFixtureList: ${list.size} parsed from ${documents.size} docs | IDs: ${list.map { it.id }}")
+        return list
+    }
+
+    private fun startFixturesListener() {
+        fixturesListener?.remove()
+
+        // Explicit server fetch — bypasses stale local cache to guarantee fresh data.
+        // This is the authoritative load; the snapshot listener below keeps us live after.
+        _isLoading.value = true
+        db.collection("fixtures")
+            .get(Source.SERVER)
+            .addOnSuccessListener { snap ->
+                val list = buildFixtureList(snap.documents)
+                Log.d("PredictionVM", "SERVER fetch: ${list.size} fixtures")
+                _allFixtures.value = list
+                updateAvailableGameweeks(list)
+                _isLoading.value = false
+            }
+            .addOnFailureListener { e ->
+                Log.e("PredictionVM", "SERVER fetch failed: ${e.message}")
+                _isLoading.value = false
+            }
+
+        // Real-time listener keeps scores/deadlines current while the screen is open.
+        // Skip cache-only snapshots to avoid overwriting fresh server data with stale cache.
+        fixturesListener = db.collection("fixtures")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    Log.e("PredictionVM", "Snapshot listener error: ${error?.message}")
+                    return@addSnapshotListener
+                }
+                if (snapshot.metadata.isFromCache) {
+                    Log.d("PredictionVM", "Snapshot from cache (${snapshot.size()} docs) — skipping, waiting for server")
+                    return@addSnapshotListener
+                }
+                val list = buildFixtureList(snapshot.documents)
+                Log.d("PredictionVM", "Snapshot from SERVER: ${list.size} fixtures")
+                _allFixtures.value = list
+                updateAvailableGameweeks(list)
+                _isLoading.value = false
+            }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        fixturesListener?.remove()
     }
 
     private fun checkAdminStatus() {
@@ -75,6 +162,7 @@ class PredictionViewModel : ViewModel() {
                 _wildcardAvailable.value = doc.getBoolean("wildcardAvailable") ?: true
                 _doubleDownAvailable.value = doc.getBoolean("doubleDownAvailable") ?: true
                 _captainAvailable.value = doc.getBoolean("captainAvailable") ?: true
+                _doubleDownUsedGameweek.value = doc.getLong("doubleDownUsedGameweek")?.toInt()
             }
     }
 
@@ -119,47 +207,39 @@ class PredictionViewModel : ViewModel() {
         }
     }
 
+    // Manual Refresh button — restarts the listener and forces a server fetch
     fun fetchFixtures(forceRefresh: Boolean = false) {
-        val source = if (forceRefresh) Source.SERVER else Source.DEFAULT
-        db.collection("fixtures")
-            .get(source)
-            .addOnSuccessListener { result ->
-                val list = result.mapNotNull { doc ->
-                    try {
-                        FootballFixture(
-                            id = doc.id,
-                            homeTeam = doc.getString("homeTeam") ?: return@mapNotNull null,
-                            awayTeam = doc.getString("awayTeam") ?: return@mapNotNull null,
-                            date = doc.getString("date") ?: "",
-                            homeTeamGoals = doc.getLong("homeTeamGoals")?.toInt() ?: -1,
-                            awayTeamGoals = doc.getLong("awayTeamGoals")?.toInt() ?: -1,
-                            winner = doc.getString("winner") ?: "",
-                            deadline = doc.getTimestamp("deadline"),
-                            gameweek = doc.getLong("gameweek")?.toInt() ?: 0
-                        )
-                    } catch (e: Exception) { null }
-                }
-                _allFixtures.value = list
-                updateAvailableGameweeks(list)
-                _isLoading.value = false
-            }
+        Log.d("PredictionVM", "fetchFixtures called (forceRefresh=$forceRefresh)")
+        startFixturesListener()
     }
 
     private fun updateAvailableGameweeks(fixtures: List<FootballFixture>) {
         val now = Date()
-        val allUpcoming = fixtures
-            .filter { it.deadline?.toDate()?.after(now) == true }
-            .map { it.gameweek }
-            .distinct()
-            .sorted()
+        val gwGroups = fixtures.groupBy { it.gameweek }
 
-        val upcoming = listOfNotNull(allUpcoming.firstOrNull())
+        // Current GW = the latest GW whose first game has already kicked off
+        val currentGw = gwGroups.entries
+            .filter { (_, gfixtures) ->
+                val minDeadline = gfixtures.mapNotNull { it.deadline?.toDate() }.minOrNull()
+                minDeadline != null && minDeadline.before(now)
+            }
+            .maxOfOrNull { it.key }
 
-        _availableGameweeks.value = upcoming
+        // Next GW = the earliest GW whose first game is still in the future
+        val nextGw = gwGroups.entries
+            .filter { (_, gfixtures) ->
+                val minDeadline = gfixtures.mapNotNull { it.deadline?.toDate() }.minOrNull()
+                minDeadline != null && minDeadline.after(now)
+            }
+            .minOfOrNull { it.key }
+
+        val tabs = listOfNotNull(currentGw, nextGw).distinct().sorted()
+        _availableGameweeks.value = tabs
 
         val override = _adminGameweekOverride.value
         val target = override
-            ?: upcoming.firstOrNull()
+            ?: nextGw
+            ?: currentGw
             ?: fixtures.map { it.gameweek }.distinct().maxOrNull()
             ?: 0
         selectGameweek(target)
@@ -213,14 +293,15 @@ class PredictionViewModel : ViewModel() {
 
                 if (existing.isEmpty) {
                     val prediction = mapOf(
-                        "fixtureId" to fixtureId,
-                        "homeTeam" to homeTeam,
-                        "awayTeam" to awayTeam,
+                        "fixtureId"    to fixtureId,
+                        "homeTeam"     to homeTeam,
+                        "awayTeam"     to awayTeam,
                         "homeTeamGoals" to homeGoals,
                         "awayTeamGoals" to awayGoals,
-                        "userId" to userId,
+                        "userId"       to userId,
                         "scoredPoints" to false,
-                        "gameweek" to gameWeek
+                        "gameweek"     to gameWeek,
+                        "submittedAt"  to FieldValue.serverTimestamp()
                     )
                     predictionsRef.add(prediction).await()
                     fetchUserPredictions(forceRefresh = true)
@@ -323,6 +404,7 @@ class PredictionViewModel : ViewModel() {
                     ))
                     .await()
                 _doubleDownAvailable.value = false
+                _doubleDownUsedGameweek.value = gameweek
                 onSuccess()
             } catch (e: Exception) {
                 onFailure("Error: ${e.message}")

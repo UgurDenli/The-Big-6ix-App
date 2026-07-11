@@ -1,5 +1,7 @@
 package com.invenium.thebig6ix.ui.profile
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -8,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
@@ -15,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +41,7 @@ private val ResultYellow = Color(0xFFFFD700)   // correct result
 private val ResultRed    = Color(0xFFF44336)   // wrong
 
 private data class PastPrediction(
+    val fixtureId: String,        // used to detect which season/competition this belongs to
     val homeTeam: String,
     val awayTeam: String,
     val predictedHome: Int,
@@ -53,10 +58,23 @@ private data class PastPrediction(
 
 @Composable
 fun PastPredictionsScreen(userId: String? = null, onBack: (() -> Unit)? = null) {
-    val auth = FirebaseAuth.getInstance()
+    val auth           = FirebaseAuth.getInstance()
     val resolvedUserId = userId ?: auth.currentUser?.uid ?: return
-    val db = FirebaseFirestore.getInstance()
-    val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
+    val isOwnProfile   = userId == null || userId == auth.currentUser?.uid
+    val db             = FirebaseFirestore.getInstance()
+    val context        = LocalContext.current
+    val ironManFont    = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
+
+    // Fetch display name of the user we're viewing (only needed for other users)
+    var viewedUserName by remember { mutableStateOf("") }
+    LaunchedEffect(resolvedUserId) {
+        if (!isOwnProfile) {
+            try {
+                val doc = db.collection("users").document(resolvedUserId).get().await()
+                viewedUserName = doc.getString("fullName") ?: ""
+            } catch (_: Exception) {}
+        }
+    }
 
     var allPredictions by remember { mutableStateOf<List<PastPrediction>>(emptyList()) }
     var availableGameweeks by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -97,6 +115,7 @@ fun PastPredictionsScreen(userId: String? = null, onBack: (() -> Unit)? = null) 
             val wasAwarded = (doc.getLong("awardedPoints")?.toInt() ?: 0) > 0 ||
                               doc.getBoolean("scoredPoints") == true
             PastPrediction(
+                fixtureId = fixtureId,
                 homeTeam = doc.getString("homeTeam") ?: "Home",
                 awayTeam = doc.getString("awayTeam") ?: "Away",
                 predictedHome = doc.getLong("homeTeamGoals")?.toInt() ?: 0,
@@ -112,8 +131,15 @@ fun PastPredictionsScreen(userId: String? = null, onBack: (() -> Unit)? = null) 
             )
         }
 
-        val gws = parsed.map { it.gameweek }.distinct().sortedDescending()
-        allPredictions = parsed
+        // Show only current WC season if the user has any WC predictions — this avoids
+        // the old PL gameweeks (1–38) swamping the tab bar and defaulting to GW38.
+        // WC fixture IDs are prefixed with "wc26_". Fall back to all predictions only
+        // if no WC predictions exist (e.g. brand-new user who never picked WC).
+        val wcParsed = parsed.filter { it.fixtureId.startsWith("wc26_") }
+        val displayParsed = if (wcParsed.isNotEmpty()) wcParsed else parsed
+
+        val gws = displayParsed.map { it.gameweek }.distinct().sortedDescending()
+        allPredictions = displayParsed
         availableGameweeks = gws
         selectedGameweek = gws.firstOrNull()
         isLoading = false
@@ -126,28 +152,43 @@ fun PastPredictionsScreen(userId: String? = null, onBack: (() -> Unit)? = null) 
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 20.dp, bottom = 8.dp),
-                contentAlignment = Alignment.Center
+            // ── Header ─────────────────────────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "PAST PREDICTIONS",
-                    color = Gold,
-                    fontFamily = ironManFont,
-                    fontSize = 20.sp,
-                    letterSpacing = 2.sp
-                )
-            }
+                // Back button (always shown)
+                IconButton(onClick = { onBack?.invoke() }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back",
+                        tint = if (onBack != null) Gold else Color.Transparent)
+                }
 
-            if (onBack != null) {
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier.align(Alignment.Start).padding(start = 4.dp)
-                ) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                // Title
+                val title = when {
+                    !isOwnProfile && viewedUserName.isNotBlank() -> "${viewedUserName}'s Picks"
+                    else -> "PAST PREDICTIONS"
+                }
+                Text(
+                    title,
+                    color = Gold, fontFamily = ironManFont,
+                    fontSize = if (!isOwnProfile && viewedUserName.isNotBlank()) 16.sp else 18.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Share button
+                if (!isLoading && displayPredictions.isNotEmpty()) {
+                    IconButton(onClick = {
+                        sharePredictions(
+                            context, displayPredictions,
+                            selectedGameweek ?: 0, gwTotal,
+                            if (!isOwnProfile && viewedUserName.isNotBlank()) viewedUserName else null
+                        )
+                    }) {
+                        Icon(Icons.Default.Share, contentDescription = "Share", tint = Gold)
+                    }
+                } else {
+                    Spacer(Modifier.width(48.dp))
                 }
             }
 
@@ -264,6 +305,47 @@ fun PastPredictionsScreen(userId: String? = null, onBack: (() -> Unit)? = null) 
         }
     }
 }
+
+// ── Share helper ─────────────────────────────────────────────────────────────
+
+private fun sharePredictions(
+    context: Context,
+    predictions: List<PastPrediction>,
+    gw: Int,
+    totalPts: Int,
+    viewedUserName: String? = null
+) {
+    val sb = StringBuilder()
+    val header = if (viewedUserName != null) "$viewedUserName's GW$gw Predictions" else "My GW$gw Predictions"
+    sb.appendLine("⚽ THE BIG 6IX — $header")
+    sb.appendLine()
+    predictions.forEach { pred ->
+        val f1 = flagFor(pred.homeTeam).ifEmpty { "" }
+        val f2 = flagFor(pred.awayTeam).ifEmpty { "" }
+        val result = when {
+            pred.awardedPoints >= 3 -> " ★"
+            pred.awardedPoints >= 1 -> " ~"
+            pred.isScored           -> " ✗"
+            else                    -> ""
+        }
+        sb.appendLine("$f1 ${pred.homeTeam}  ${pred.predictedHome}–${pred.predictedAway}  ${pred.awayTeam} $f2$result")
+    }
+    if (totalPts > 0) {
+        sb.appendLine()
+        sb.appendLine("Total: $totalPts pts 🏆")
+    }
+    sb.appendLine()
+    sb.append("Predicted on The Big 6ix app 🎮")
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, sb.toString())
+        putExtra(Intent.EXTRA_SUBJECT, header)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share Predictions"))
+}
+
+// ── Prediction result card ────────────────────────────────────────────────────
 
 @Composable
 private fun PredictionResultCard(pred: PastPrediction, ironManFont: FontFamily) {

@@ -23,7 +23,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -44,14 +43,15 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
     onViewFullLeaderboard: () -> Unit = {}
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state       by viewModel.uiState.collectAsState()
+    val gwWinner    by viewModel.gwWinner.collectAsState()
     val ironManFont = FontFamily(Font(R.font.iron_man_of_war_001c_ncv, FontWeight.Bold))
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
         if (state.isLoading) {
             HomeSkeletonScreen()
         } else {
-            HomeContent(state, ironManFont, onViewFullLeaderboard)
+            HomeContent(state, gwWinner, ironManFont, onViewFullLeaderboard)
         }
     }
 }
@@ -59,6 +59,7 @@ fun HomeScreen(
 @Composable
 private fun HomeContent(
     state: HomeUiState,
+    gwWinner: GwWinner?,
     ironManFont: FontFamily,
     onViewFullLeaderboard: () -> Unit
 ) {
@@ -83,24 +84,17 @@ private fun HomeContent(
 
         Spacer(Modifier.height(20.dp))
 
-        // ── User stats card ────────────────────────────────────────────────────
+        // ── User stats card ────────────────────────────────────────────────
         UserStatsCard(state, ironManFont)
-
         Spacer(Modifier.height(14.dp))
 
-        // ── Next GW card ──────────────────────────────────────────────────────
+        // ── Next GW card ───────────────────────────────────────────────────
         if (state.nextGwNumber != null) {
             NextGwCard(state, ironManFont)
             Spacer(Modifier.height(14.dp))
         }
 
-        // ── Last GW result card ───────────────────────────────────────────────
-        if (state.lastGwNumber != null) {
-            LastGwCard(state, ironManFont)
-            Spacer(Modifier.height(14.dp))
-        }
-
-        // ── Top 3 leaderboard preview ─────────────────────────────────────────
+        // ── Top 3 leaderboard preview ──────────────────────────────────────
         if (state.topUsers.isNotEmpty()) {
             SectionHeader("TOP PLAYERS", ironManFont)
             Spacer(Modifier.height(8.dp))
@@ -111,15 +105,15 @@ private fun HomeContent(
             Spacer(Modifier.height(14.dp))
         }
 
-        // ── View full leaderboard CTA ─────────────────────────────────────────
+        // ── View full leaderboard CTA ──────────────────────────────────────
         Button(
             onClick = onViewFullLeaderboard,
-            colors = ButtonDefaults.buttonColors(containerColor = Gold),
+            colors  = ButtonDefaults.buttonColors(containerColor = Gold),
             modifier = Modifier.fillMaxWidth().height(50.dp),
             shape = RoundedCornerShape(10.dp)
         ) {
             Text(
-                text = "VIEW FULL LEADERBOARD",
+                "VIEW FULL LEADERBOARD",
                 color = Color.Black,
                 fontFamily = ironManFont,
                 fontWeight = FontWeight.Bold,
@@ -131,6 +125,8 @@ private fun HomeContent(
         Spacer(Modifier.height(24.dp))
     }
 }
+
+// ── User stats card ───────────────────────────────────────────────────────────
 
 @Composable
 private fun UserStatsCard(state: HomeUiState, ironManFont: FontFamily) {
@@ -144,69 +140,41 @@ private fun UserStatsCard(state: HomeUiState, ironManFont: FontFamily) {
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar
             Box(
-                modifier = Modifier
-                    .size(60.dp)
-                    .clip(CircleShape)
-                    .border(2.dp, Gold, CircleShape)
-                    .background(Color(0xFF222222)),
+                modifier = Modifier.size(60.dp).clip(CircleShape)
+                    .border(2.dp, Gold, CircleShape).background(Color(0xFF222222)),
                 contentAlignment = Alignment.Center
             ) {
                 if (state.userProfileImageUrl != null) {
                     Image(
                         painter = rememberAsyncImagePainter(state.userProfileImageUrl),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
+                        contentDescription = null, contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_account),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Image(painterResource(id = R.drawable.ic_account), null, modifier = Modifier.fillMaxSize())
                 }
             }
-
             Spacer(Modifier.width(14.dp))
-
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = state.userName.ifBlank { "Player" },
-                    color = Color.White,
-                    fontFamily = ironManFont,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(state.userName.ifBlank { "Player" }, color = Color.White, fontFamily = ironManFont, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 if (state.userRank > 0) {
-                    Text(
-                        text = "Rank #${state.userRank}",
-                        color = Dim,
-                        fontSize = 12.sp
-                    )
+                    Text("Rank #${state.userRank}", color = Dim, fontSize = 12.sp)
                 }
             }
-
             Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "${state.userTotalPoints}",
-                    color = Gold,
-                    fontFamily = ironManFont,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 30.sp
-                )
+                Text("${state.userTotalPoints}", color = Gold, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 30.sp)
                 Text("pts", color = Dim, fontSize = 11.sp)
             }
         }
     }
 }
 
+// ── Next GW card ──────────────────────────────────────────────────────────────
+
 @Composable
 private fun NextGwCard(state: HomeUiState, ironManFont: FontFamily) {
     val allPredicted = state.nextGwPredicted >= state.nextGwFixtureCount && state.nextGwFixtureCount > 0
-
-    // Live countdown
     val now by produceState(initialValue = System.currentTimeMillis()) {
         while (true) { value = System.currentTimeMillis(); delay(1000L) }
     }
@@ -215,166 +183,43 @@ private fun NextGwCard(state: HomeUiState, ironManFont: FontFamily) {
         val diffMs   = deadline - now
         if (diffMs <= 0) return@remember "Closed"
         val totalHours = diffMs / 3_600_000L
-        val days       = totalHours / 24
-        val hours      = totalHours % 24
-        val mins       = (diffMs % 3_600_000L) / 60_000L
-        when {
-            days > 0  -> "${days}d ${hours}h"
-            hours > 0 -> "${hours}h ${mins}m"
-            else      -> "${mins}m"
-        }
+        val days = totalHours / 24; val hours = totalHours % 24; val mins = (diffMs % 3_600_000L) / 60_000L
+        when { days > 0 -> "${days}d ${hours}h"; hours > 0 -> "${hours}h ${mins}m"; else -> "${mins}m" }
     }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (allPredicted) Color(0xFF0A1F0A) else Color(0xFF111111)
-        ),
+        colors = CardDefaults.cardColors(containerColor = if (allPredicted) Color(0xFF0A1F0A) else Color(0xFF111111)),
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, if (allPredicted) GreenOk.copy(alpha = 0.5f) else Color(0xFF333333))
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("⚽", fontSize = 20.sp)
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "GAMEWEEK ${state.nextGwNumber}",
-                    color = Gold,
-                    fontFamily = ironManFont,
-                    fontSize = 15.sp,
-                    modifier = Modifier.weight(1f)
-                )
+                Text("GAMEWEEK ${state.nextGwNumber}", color = Gold, fontFamily = ironManFont, fontSize = 15.sp, modifier = Modifier.weight(1f))
                 if (allPredicted) {
                     Box(
-                        modifier = Modifier
-                            .background(GreenOk.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                        modifier = Modifier.background(GreenOk.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
                             .border(0.5.dp, GreenOk.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
                             .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text("ALL DONE ✓", color = GreenOk, fontFamily = ironManFont, fontSize = 10.sp)
-                    }
+                    ) { Text("ALL DONE ✓", color = GreenOk, fontFamily = ironManFont, fontSize = 10.sp) }
                 }
             }
-
             Spacer(Modifier.height(12.dp))
-
             Row(modifier = Modifier.fillMaxWidth()) {
-                // Prediction progress
-                StatChip(
-                    label = "PREDICTED",
-                    value = "${state.nextGwPredicted}/${state.nextGwFixtureCount}",
-                    color = if (allPredicted) GreenOk else Gold,
-                    ironManFont = ironManFont,
-                    modifier = Modifier.weight(1f)
-                )
+                StatChip("PREDICTED", "${state.nextGwPredicted}/${state.nextGwFixtureCount}", if (allPredicted) GreenOk else Gold, ironManFont, Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
-                // Countdown
-                StatChip(
-                    label = "CLOSES IN",
-                    value = countdownText,
-                    color = Dim,
-                    ironManFont = ironManFont,
-                    modifier = Modifier.weight(1f)
-                )
+                StatChip("CLOSES IN", countdownText, Dim, ironManFont, Modifier.weight(1f))
             }
         }
     }
 }
 
-@Composable
-private fun LastGwCard(state: HomeUiState, ironManFont: FontFamily) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = CardBg),
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, Color(0xFF333333))
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("🏆", fontSize = 18.sp)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "GW${state.lastGwNumber} RESULTS",
-                    color = Gold,
-                    fontFamily = ironManFont,
-                    fontSize = 14.sp,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Row(modifier = Modifier.fillMaxWidth()) {
-                // Your points
-                StatChip(
-                    label = "YOUR SCORE",
-                    value = "${state.lastGwUserPoints} pts",
-                    color = Gold,
-                    ironManFont = ironManFont,
-                    modifier = Modifier.weight(1f)
-                )
-                if (state.gwWinnerName != null) {
-                    Spacer(Modifier.width(8.dp))
-                    // GW winner
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .background(Color(0xFF1A1200), RoundedCornerShape(8.dp))
-                            .border(0.5.dp, Gold.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                            .padding(10.dp)
-                    ) {
-                        Text("GW WINNER", color = Dim, fontSize = 9.sp, letterSpacing = 1.sp)
-                        Spacer(Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .border(1.dp, Gold, CircleShape)
-                                    .background(Color(0xFF333333))
-                            ) {
-                                if (state.gwWinnerImageUrl != null) {
-                                    Image(
-                                        painter = rememberAsyncImagePainter(state.gwWinnerImageUrl),
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    Image(
-                                        painter = painterResource(id = R.drawable.ic_account),
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = state.gwWinnerName,
-                                color = Gold,
-                                fontFamily = ironManFont,
-                                fontSize = 12.sp,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+// ── Reused composables ────────────────────────────────────────────────────────
 
 @Composable
-private fun StatChip(
-    label: String,
-    value: String,
-    color: Color,
-    ironManFont: FontFamily,
-    modifier: Modifier = Modifier
-) {
+private fun StatChip(label: String, value: String, color: Color, ironManFont: FontFamily, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
@@ -391,25 +236,57 @@ private fun StatChip(
 private fun SectionHeader(text: String, ironManFont: FontFamily) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFF222222))
-        Text(
-            "  $text  ",
-            color = Dim,
-            fontFamily = ironManFont,
-            fontSize = 11.sp,
-            letterSpacing = 2.sp
-        )
+        Text("  $text  ", color = Dim, fontFamily = ironManFont, fontSize = 11.sp, letterSpacing = 2.sp)
         HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFF222222))
+    }
+}
+
+// ── GW Winner Banner ─────────────────────────────────────────────────────────
+
+@Composable
+private fun GwWinnerBanner(winner: GwWinner, ironManFont: FontFamily) {
+    val glowAlpha by rememberInfiniteTransition(label = "glow").animateFloat(
+        initialValue = 0.3f, targetValue = 0.7f, animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse
+        ), label = "glowAlpha"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1200)),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.5.dp, Gold.copy(alpha = glowAlpha))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("⚡", fontSize = 22.sp)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "GW${winner.gameweek} WINNER",
+                    color = Gold, fontFamily = ironManFont, fontSize = 10.sp, letterSpacing = 1.5.sp
+                )
+                Text(
+                    winner.name,
+                    color = Color.White, fontFamily = ironManFont, fontSize = 16.sp
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "${winner.gwPoints}",
+                    color = Gold, fontFamily = ironManFont, fontSize = 24.sp, fontWeight = FontWeight.Bold
+                )
+                Text("pts", color = Dim, fontSize = 10.sp)
+            }
+        }
     }
 }
 
 @Composable
 private fun LeaderboardPreviewRow(rank: Int, user: LeaderboardUser, ironManFont: FontFamily) {
-    val medalColor = when (rank) {
-        1 -> Gold
-        2 -> Silver
-        3 -> Bronze
-        else -> Dim
-    }
+    val medalColor = when (rank) { 1 -> Gold; 2 -> Silver; 3 -> Bronze; else -> Dim }
     val emoji = when (rank) { 1 -> "🥇"; 2 -> "🥈"; 3 -> "🥉"; else -> "#$rank" }
 
     Card(
@@ -423,54 +300,35 @@ private fun LeaderboardPreviewRow(rank: Int, user: LeaderboardUser, ironManFont:
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(emoji, fontSize = 20.sp, modifier = Modifier.width(36.dp))
-
             Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .border(1.5.dp, medalColor, CircleShape)
-                    .background(Color(0xFF222222)),
+                modifier = Modifier.size(36.dp).clip(CircleShape)
+                    .border(1.5.dp, medalColor, CircleShape).background(Color(0xFF222222)),
                 contentAlignment = Alignment.Center
             ) {
                 if (user.profileImageUrl != null) {
-                    Image(
-                        painter = rememberAsyncImagePainter(user.profileImageUrl),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Image(rememberAsyncImagePainter(user.profileImageUrl), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 } else {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_account),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Image(painterResource(id = R.drawable.ic_account), null, modifier = Modifier.fillMaxSize())
                 }
             }
-
             Spacer(Modifier.width(12.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 Text(user.name, color = Color.White, fontFamily = ironManFont, fontSize = 14.sp)
                 if (user.isNewLeader) {
                     Text("NEW LEADER", color = Gold.copy(alpha = 0.7f), fontFamily = ironManFont, fontSize = 9.sp, letterSpacing = 1.sp)
                 }
             }
-
             Text("${user.totalScore} pts", color = Gold, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
     }
 }
 
-// ── Skeleton loading state ────────────────────────────────────────────────────
+// ── Skeleton loading ──────────────────────────────────────────────────────────
 
 @Composable
 fun HomeSkeletonScreen() {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(16.dp))
@@ -478,13 +336,14 @@ fun HomeSkeletonScreen() {
         Spacer(Modifier.height(8.dp))
         ShimmerBox(Modifier.width(100.dp).height(18.dp).clip(RoundedCornerShape(4.dp)))
         Spacer(Modifier.height(24.dp))
-        // User stats card skeleton
         ShimmerBox(Modifier.fillMaxWidth().height(88.dp).clip(RoundedCornerShape(14.dp)))
         Spacer(Modifier.height(14.dp))
-        // Next GW card skeleton
         ShimmerBox(Modifier.fillMaxWidth().height(110.dp).clip(RoundedCornerShape(14.dp)))
         Spacer(Modifier.height(14.dp))
-        // Top players skeleton
+        ShimmerBox(Modifier.fillMaxWidth().height(80.dp).clip(RoundedCornerShape(14.dp)))
+        Spacer(Modifier.height(14.dp))
+        ShimmerBox(Modifier.fillMaxWidth().height(80.dp).clip(RoundedCornerShape(14.dp)))
+        Spacer(Modifier.height(14.dp))
         repeat(3) {
             ShimmerBox(Modifier.fillMaxWidth().height(58.dp).clip(RoundedCornerShape(10.dp)))
             Spacer(Modifier.height(6.dp))
@@ -496,22 +355,14 @@ fun HomeSkeletonScreen() {
 fun ShimmerBox(modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "shimmer")
     val translateAnim by transition.animateFloat(
-        initialValue = 0f,
-        targetValue  = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
+        initialValue = 0f, targetValue = 1000f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart),
         label = "shimmer_translate"
     )
     Box(
         modifier = modifier.background(
             Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFF1A1A1A),
-                    Color(0xFF2A2A2A),
-                    Color(0xFF1A1A1A)
-                ),
+                colors = listOf(Color(0xFF1A1A1A), Color(0xFF2A2A2A), Color(0xFF1A1A1A)),
                 start = Offset(translateAnim - 500f, 0f),
                 end   = Offset(translateAnim, 0f)
             )

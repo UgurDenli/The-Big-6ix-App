@@ -1,12 +1,16 @@
 package com.invenium.thebig6ix.ui.leaderboard
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 data class UserScore(
     val uid: String = "",
@@ -18,6 +22,13 @@ data class UserScore(
 data class PanelScore(
     val name: String = "",
     val score: Int = 0
+)
+
+data class SharpUser(
+    val uid: String = "",
+    val name: String = "",
+    val correctScores: Int = 0,
+    val profileImageUrl: String? = null
 )
 
 class LeaderboardViewModel : ViewModel() {
@@ -46,6 +57,12 @@ class LeaderboardViewModel : ViewModel() {
     private val _latestGwNumber = MutableStateFlow<Int?>(null)
     val latestGwNumber: StateFlow<Int?> = _latestGwNumber
 
+    private val _sharpsUsers = MutableStateFlow<List<SharpUser>>(emptyList())
+    val sharpsUsers: StateFlow<List<SharpUser>> = _sharpsUsers
+
+    private val _sharpsLoading = MutableStateFlow(false)
+    val sharpsLoading: StateFlow<Boolean> = _sharpsLoading
+
     private var communityListener: ListenerRegistration? = null
     private var panelListener: ListenerRegistration? = null
     private var gwWinnerListener: ListenerRegistration? = null
@@ -54,7 +71,20 @@ class LeaderboardViewModel : ViewModel() {
         startCommunityListener()
         startPanelListener()
         startGwWinnerListener()
+        loadSharps()
     }
+
+    // ── Pull-to-refresh ───────────────────────────────────────────────────────
+
+    fun refresh() {
+        _isLoading.value = true
+        communityListener?.remove()
+        panelListener?.remove()
+        startCommunityListener()
+        startPanelListener()
+    }
+
+    // ── Listeners ─────────────────────────────────────────────────────────────
 
     private fun startGwWinnerListener() {
         gwWinnerListener = db.collection("gameweekWinners")
@@ -63,7 +93,7 @@ class LeaderboardViewModel : ViewModel() {
             .addSnapshotListener { snap, _ ->
                 val doc = snap?.documents?.firstOrNull() ?: return@addSnapshotListener
                 _latestGwWinnerUid.value = doc.getString("userId")
-                _latestGwNumber.value = doc.getLong("gameweek")?.toInt()
+                _latestGwNumber.value    = doc.getLong("gameweek")?.toInt()
             }
     }
 
@@ -75,9 +105,9 @@ class LeaderboardViewModel : ViewModel() {
                 _communityUsers.value = snapshot.documents.mapNotNull { doc ->
                     val name = doc.getString("fullName") ?: return@mapNotNull null
                     UserScore(
-                        uid = doc.id,
-                        name = name,
-                        score = doc.getLong("score")?.toInt() ?: 0,
+                        uid             = doc.id,
+                        name            = name,
+                        score           = doc.getLong("score")?.toInt() ?: 0,
                         profileImageUrl = doc.getString("profileImageUrl")
                     )
                 }
@@ -89,35 +119,80 @@ class LeaderboardViewModel : ViewModel() {
         panelListener = db.collection("config")
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot == null) return@addSnapshotListener
-                val panels = snapshot.documents
+                _panelScores.value = snapshot.documents
                     .filter { it.id.startsWith("panel") }
                     .mapNotNull { doc ->
                         val name = doc.getString("fullName") ?: return@mapNotNull null
-                        PanelScore(
-                            name = name,
-                            score = doc.getLong("score")?.toInt() ?: 0
-                        )
+                        PanelScore(name = name, score = doc.getLong("score")?.toInt() ?: 0)
                     }
                     .sortedByDescending { it.score }
-                _panelScores.value = panels
             }
     }
 
-    /** Global (1-based) rank of the current user across the full community list */
+    // ── Sharps leaderboard (correct exact scores) ─────────────────────────────
+
+    fun loadSharps() {
+        _sharpsLoading.value = true
+        viewModelScope.launch {
+            try {
+                // All predictions where the admin awarded 3 pts (correct score)
+                val preds = db.collection("predictions")
+                    .whereGreaterThanOrEqualTo("awardedPoints", 3)
+                    .get().await()
+
+                val countByUid = mutableMapOf<String, Int>()
+                preds.documents.forEach { doc ->
+                    val uid = doc.getString("userId") ?: return@forEach
+                    countByUid[uid] = (countByUid[uid] ?: 0) + 1
+                }
+
+                if (countByUid.isEmpty()) {
+                    _sharpsUsers.value = emptyList()
+                    return@launch
+                }
+
+                // Fetch user info in chunks
+                val userMap = mutableMapOf<String, Pair<String, String?>>()
+                countByUid.keys.toList().chunked(30).forEach { chunk ->
+                    db.collection("users")
+                        .whereIn(FieldPath.documentId(), chunk)
+                        .get().await().documents
+                        .forEach { doc ->
+                            userMap[doc.id] = Pair(
+                                doc.getString("fullName") ?: "Anonymous",
+                                doc.getString("profileImageUrl")
+                            )
+                        }
+                }
+
+                _sharpsUsers.value = countByUid.entries
+                    .mapNotNull { (uid, count) ->
+                        val (name, img) = userMap[uid] ?: return@mapNotNull null
+                        SharpUser(uid = uid, name = name, correctScores = count, profileImageUrl = img)
+                    }
+                    .sortedByDescending { it.correctScores }
+            } catch (_: Exception) {
+            } finally {
+                _sharpsLoading.value = false
+            }
+        }
+    }
+
+    // ── Pagination helpers ────────────────────────────────────────────────────
+
     fun currentUserRank(): Int {
         val uid = currentUserUid ?: return 0
         val idx = _communityUsers.value.indexOfFirst { it.uid == uid }
         return if (idx >= 0) idx + 1 else 0
     }
 
-    /** Current user's UserScore, or null if not found */
     fun currentUserScore(): UserScore? {
         val uid = currentUserUid ?: return null
         return _communityUsers.value.firstOrNull { it.uid == uid }
     }
 
     fun setCommunityPage(page: Int) { _communityPage.value = page }
-    fun setPanelPage(page: Int) { _panelPage.value = page }
+    fun setPanelPage(page: Int)     { _panelPage.value = page }
 
     fun communityPageCount(): Int {
         val total = _communityUsers.value.size

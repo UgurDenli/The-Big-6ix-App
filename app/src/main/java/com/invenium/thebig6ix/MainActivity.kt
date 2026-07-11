@@ -10,6 +10,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -24,6 +27,9 @@ import com.invenium.thebig6ix.ui.theme.TheBig6ixTheme
 class MainActivity : ComponentActivity() {
 
     private val discordAuthViewModel: DiscordAuthViewModel by viewModels()
+
+    /** Route to navigate to when a notification is tapped (predictions / profile). */
+    private var notificationRoute by mutableStateOf<String?>(null)
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -41,9 +47,12 @@ class MainActivity : ComponentActivity() {
         askNotificationPermission()
         saveFcmToken()
 
+        // Handle cold-start notification tap
+        notificationRoute = intent?.getStringExtra("navigate_to")
+
         setContent {
             TheBig6ixTheme {
-                MainNavigation()
+                MainNavigation(notificationDeepLink = notificationRoute)
             }
         }
     }
@@ -70,6 +79,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
+
+        // Handle notification tap while app is already running
+        intent.getStringExtra("navigate_to")?.let { route ->
+            notificationRoute = route
+        }
+
+        // Handle Discord OAuth deep link
         val data = intent.data ?: return
         if (data.scheme == "big6ix" && data.host == "auth") {
             val success = data.getQueryParameter("success")

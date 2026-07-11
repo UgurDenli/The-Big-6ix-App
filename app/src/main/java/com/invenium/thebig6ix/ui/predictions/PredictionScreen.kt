@@ -72,6 +72,7 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
     val adminOverride      by viewModel.adminGameweekOverride.collectAsState()
     val wildcardAvailable   by viewModel.wildcardAvailable.collectAsState()
     val doubleDownAvailable by viewModel.doubleDownAvailable.collectAsState()
+    val doubleDownUsedGameweek by viewModel.doubleDownUsedGameweek.collectAsState()
     val captainAvailable    by viewModel.captainAvailable.collectAsState()
     val isLoading          by viewModel.isLoading.collectAsState()
 
@@ -190,9 +191,11 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
     if (showCaptainPickerDialog) {
         val captainEligible = fixtures.filter { fixture ->
             val pred = userPredictions.find { it.fixtureId == fixture.id }
-            val deadline = fixture.deadline?.toDate()
-                ?.toInstant()?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
-            pred != null && !pred.captainUsed && deadline?.isAfter(LocalDateTime.now()) == true
+            val fixtureDeadline = fixture.deadline?.toDate()?.toInstant()
+                ?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
+            pred != null && !pred.captainUsed &&
+                fixtureDeadline?.isAfter(LocalDateTime.now()) == true &&
+                fixture.homeTeamGoals < 0
         }
         AlertDialog(
             onDismissRequest = { showCaptainPickerDialog = false },
@@ -281,10 +284,10 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
     if (showWildcardPickerDialog) {
         val wildcardEligible = fixtures.filter { fixture ->
             val pred = userPredictions.find { it.fixtureId == fixture.id }
-            val deadline = fixture.deadline?.toDate()
-                ?.toInstant()?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
+            val fixtureDeadline = fixture.deadline?.toDate()?.toInstant()
+                ?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
             pred != null && !pred.wildcardUsed &&
-                deadline?.isAfter(LocalDateTime.now()) == true &&
+                fixtureDeadline?.isAfter(LocalDateTime.now()) == true &&
                 fixture.homeTeamGoals == -1
         }
         AlertDialog(
@@ -462,11 +465,14 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
         while (true) { value = LocalDateTime.now(); delay(1000L) }
     }
 
-    val upcomingFixtures = fixtures.filter { it.homeTeamGoals == -1 && it.awayTeamGoals == -1 }
+    // Show ALL fixtures in the selected GW — scored games stay visible as expired
+    // so a single early match kicking off doesn't make the card disappear.
+    val upcomingFixtures = fixtures
 
-    val allDeadlinesPassed = fixtures.isNotEmpty() && fixtures.all { fixture ->
-        fixture.deadline?.toDate()?.toInstant()?.atZone(ZoneId.systemDefault())
-            ?.toLocalDateTime()?.isBefore(now) == true
+    // Show summary once ALL fixtures in the GW have passed their individual deadline.
+    val allDeadlinesPassed = fixtures.isNotEmpty() && fixtures.all { f ->
+        val dl = f.deadline?.toDate()?.toInstant()?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
+        (dl != null && dl.isBefore(now)) || f.homeTeamGoals >= 0
     }
     val allPredicted = fixtures.isNotEmpty() && fixtures.all { fixture ->
         userPredictions.any { it.fixtureId == fixture.id }
@@ -480,15 +486,13 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
     // Tracks which fixture IDs have been animated in (persists across recompositions)
     var animatedCardIds by remember { mutableStateOf(emptySet<String>()) }
 
-    LaunchedEffect(upcomingFixtures) {
-        val newOnes = upcomingFixtures.filter { it.id !in animatedCardIds }
-        newOnes.forEachIndexed { index, fixture ->
-            delay(index * 75L)
-            animatedCardIds = animatedCardIds + fixture.id
-        }
-    }
-
-    LaunchedEffect(selectedGameweek) {
+    // Single effect keyed on BOTH gameweek AND fixture list.
+    // Previously two separate LaunchedEffects had a race condition: the selectedGameweek
+    // effect would reset animatedCardIds mid-animation, wiping the first fixture (Brazil)
+    // which was added at delay(0) before the reset ran.  By combining into one effect,
+    // the reset and the staggered animation are always atomic.
+    LaunchedEffect(selectedGameweek, upcomingFixtures) {
+        // Reset form state when GW changes (harmless no-op when only fixtures change)
         selectedFixture = null
         homeGoals = 0
         awayGoals = 0
@@ -498,7 +502,17 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
         wildcardDialogFixture = null
         wildcardDialogHomeInt = 0
         wildcardDialogAwayInt = 0
-        animatedCardIds = emptySet()   // re-animate cards on GW switch
+
+        // Determine which cards still need to animate in
+        val toAnimate = upcomingFixtures.filter { it.id !in animatedCardIds }
+        if (toAnimate.isEmpty()) return@LaunchedEffect
+
+        // If this is a fresh GW (animatedCardIds is empty) stagger all cards;
+        // otherwise just slide in the new ones (e.g. Brazil arriving from server)
+        toAnimate.forEachIndexed { index, fixture ->
+            delay(index * 75L)
+            animatedCardIds = animatedCardIds + fixture.id
+        }
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
@@ -552,11 +566,12 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Gameweek tabs
+                // Gameweek tabs — "THIS GW" / "NEXT GW" when two GWs are available
                 if (availableGameweeks.isNotEmpty()) {
                     val displayGameweeks = if (adminOverride != null && !availableGameweeks.contains(adminOverride))
                         (availableGameweeks + adminOverride!!).sorted() else availableGameweeks
                     val selectedIndex = displayGameweeks.indexOf(selectedGameweek).coerceAtLeast(0)
+                    val isTwoGwMode = displayGameweeks.size == 2
 
                     TabRow(
                         selectedTabIndex = selectedIndex,
@@ -574,20 +589,49 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
                         },
                         divider = {}
                     ) {
-                        displayGameweeks.forEach { gw ->
+                        displayGameweeks.forEachIndexed { idx, gw ->
                             val sel = selectedGameweek == gw
-                            Tab(
-                                selected = sel,
-                                onClick = { viewModel.selectGameweek(gw) },
-                                text = {
-                                    Text(
-                                        "GW $gw",
-                                        color = if (sel) Gold else Dim,
-                                        fontFamily = ironManFont,
-                                        fontSize = 13.sp
-                                    )
+                            if (isTwoGwMode) {
+                                val label = if (idx == 0) "THIS GW" else "NEXT GW"
+                                Tab(
+                                    selected = sel,
+                                    onClick = { viewModel.selectGameweek(gw) },
+                                    selectedContentColor = Gold,
+                                    unselectedContentColor = Dim
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.padding(vertical = 10.dp)
+                                    ) {
+                                        Text(
+                                            label,
+                                            color = if (sel) Gold else Dim,
+                                            fontFamily = ironManFont,
+                                            fontSize = 11.sp,
+                                            letterSpacing = 1.sp
+                                        )
+                                        Text(
+                                            "GW $gw",
+                                            color = if (sel) Gold.copy(alpha = 0.6f) else Dim.copy(alpha = 0.5f),
+                                            fontFamily = ironManFont,
+                                            fontSize = 9.sp
+                                        )
+                                    }
                                 }
-                            )
+                            } else {
+                                Tab(
+                                    selected = sel,
+                                    onClick = { viewModel.selectGameweek(gw) },
+                                    text = {
+                                        Text(
+                                            "GW $gw",
+                                            color = if (sel) Gold else Dim,
+                                            fontFamily = ironManFont,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(20.dp))
@@ -618,7 +662,13 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
                         available = doubleDownAvailable,
                         ironManFont = ironManFont,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
-                        onClick = if (doubleDownAvailable) {{ showDoubleDownDialog = true }} else null
+                        onClick = if (doubleDownAvailable) {{ showDoubleDownDialog = true }} else null,
+                        // Once used, surface which GW the 2× is locked into. Highlight when
+                        // viewing that GW, otherwise just note the gameweek it was spent on.
+                        activeBadge = doubleDownUsedGameweek?.let { ddGw ->
+                            if (ddGw == selectedGameweek) "⚡ ACTIVE THIS GW" else "USED · GW$ddGw"
+                        },
+                        activeHighlight = doubleDownUsedGameweek != null && doubleDownUsedGameweek == selectedGameweek
                     )
                     TokenCard(
                         emoji = "🎖️",
@@ -694,8 +744,10 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
                     }
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    val allUpcomingPredicted = upcomingFixtures.isNotEmpty() &&
-                        upcomingFixtures.all { f -> userPredictions.any { it.fixtureId == f.id } }
+                    // Only consider still-predictable (unscored) fixtures for the "all predicted" banner
+                    val predictableFixtures = upcomingFixtures.filter { it.homeTeamGoals == -1 }
+                    val allUpcomingPredicted = predictableFixtures.isNotEmpty() &&
+                        predictableFixtures.all { f -> userPredictions.any { it.fixtureId == f.id } }
 
                     if (upcomingFixtures.isEmpty() || allUpcomingPredicted) {
                         AllPredictedCard(
@@ -712,9 +764,9 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
                         val existingPred = userPredictions.find { it.fixtureId == fixture.id }
                         val alreadyPredicted = existingPred != null
                         val isCaptained = existingPred?.captainUsed == true
-                        val deadline = fixture.deadline?.toDate()
-                            ?.toInstant()?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
-                        val isExpired = deadline?.isBefore(now) == true
+                        val fixtureDeadlineLocal = fixture.deadline?.toDate()?.toInstant()
+                            ?.atZone(ZoneId.systemDefault())?.toLocalDateTime()
+                        val isExpired = fixtureDeadlineLocal?.isBefore(now) == true || fixture.homeTeamGoals >= 0
                         val canCaptain = alreadyPredicted && !isExpired && captainAvailable && !isCaptained
 
                         AnimatedVisibility(
@@ -735,7 +787,7 @@ fun PredictionScreen(viewModel: PredictionViewModel = viewModel()) {
                                     isExpired = isExpired,
                                     isCaptained = isCaptained,
                                     canCaptain = canCaptain,
-                                    deadline = deadline,
+                                    deadline = fixtureDeadlineLocal,
                                     now = now,
                                     ironManFont = ironManFont,
                                     existingPrediction = existingPred,
@@ -938,6 +990,27 @@ private fun AllPredictedCard(gwNumber: Int?, ironManFont: FontFamily) {
 }
 
 @Composable
+private fun NameLabel(team: String, ironManFont: FontFamily, modifier: Modifier = Modifier) {
+    val flag = flagFor(team)
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        if (flag.isNotEmpty()) {
+            Text(flag, fontSize = 14.sp)
+            Spacer(Modifier.width(4.dp))
+        }
+        Text(
+            team, color = Gold,
+            fontFamily = ironManFont, fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2
+        )
+    }
+}
+
+@Composable
 private fun GoalStepper(
     value: Int,
     onDecrement: () -> Unit,
@@ -1008,18 +1081,24 @@ private fun TokenCard(
     available: Boolean,
     ironManFont: FontFamily,
     modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    // When a spent token should still show context (e.g. Double Down's gameweek),
+    // pass a label here. activeHighlight makes the card glow in the token's colour
+    // instead of the dim "used" styling.
+    activeBadge: String? = null,
+    activeHighlight: Boolean = false
 ) {
-    val bg        = if (available) color.copy(alpha = 0.08f) else Color(0xFF0D0D0D)
-    val border    = if (available) color.copy(alpha = 0.45f) else Color(0xFF222222)
-    val textColor = if (available) color else Dim
+    val lit       = available || activeHighlight
+    val bg        = if (lit) color.copy(alpha = 0.08f) else Color(0xFF0D0D0D)
+    val border    = if (lit) color.copy(alpha = 0.45f) else Color(0xFF222222)
+    val textColor = if (lit) color else Dim
     val tappable  = available && onClick != null
 
     Card(
         modifier = modifier.let { m -> if (tappable) m.clickable(onClick = onClick!!) else m },
         colors = CardDefaults.cardColors(containerColor = bg),
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(if (tappable) 1.5.dp else 1.dp, border)
+        border = BorderStroke(if (tappable || activeHighlight) 1.5.dp else 1.dp, border)
     ) {
         Column(
             modifier = Modifier
@@ -1041,7 +1120,7 @@ private fun TokenCard(
             Spacer(modifier = Modifier.height(3.dp))
             Text(
                 description,
-                color = if (available) Color(0xFF999999) else Color(0xFF444444),
+                color = if (lit) Color(0xFF999999) else Color(0xFF444444),
                 fontSize = 9.sp,
                 textAlign = TextAlign.Center,
                 lineHeight = 12.sp
@@ -1050,16 +1129,17 @@ private fun TokenCard(
             Box(
                 modifier = Modifier
                     .background(
-                        if (available) color.copy(alpha = 0.15f) else Color(0xFF1A1A1A),
+                        if (lit) color.copy(alpha = 0.15f) else Color(0xFF1A1A1A),
                         RoundedCornerShape(4.dp)
                     )
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
                     when {
-                        tappable  -> "TAP TO USE"
-                        available -> "AVAILABLE"
-                        else      -> "USED"
+                        activeBadge != null -> activeBadge
+                        tappable            -> "TAP TO USE"
+                        available           -> "AVAILABLE"
+                        else                -> "USED"
                     },
                     color = textColor,
                     fontFamily = ironManFont,
@@ -1279,15 +1359,12 @@ private fun FixtureCard(
                         }
                     }
                     deadline != null -> {
-                        val d = Duration.between(now, deadline)
-                        val totalHours = if (d.isNegative) 0L else d.toHours()
-                        val days  = totalHours / 24
-                        val hours = totalHours % 24
-                        val mins  = if (d.isNegative) 0L else d.toMinutes() % 60
-                        val countdown = when {
-                            days  > 0      -> "${days}d ${hours}h"
-                            totalHours > 0 -> "${hours}h ${mins}m"
-                            else           -> "${mins}m"
+                        val hours = totalDeadlineMins / 60
+                        val countdownText = when {
+                            totalDeadlineMins == Long.MAX_VALUE -> ""
+                            isCritical -> "${totalDeadlineMins}m"
+                            isUrgent   -> "${hours}h ${totalDeadlineMins % 60}m"
+                            else       -> { val d = hours / 24; if (d > 0) "${d}d ${hours % 24}h" else "${hours}h" }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -1298,23 +1375,17 @@ private fun FixtureCard(
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                "Closes in $countdown",
+                                if (matchDateLabel.isNotEmpty()) "Kicks off $matchDateLabel" else ctaLabel,
                                 color = urgencyTextColor.copy(alpha = pulseAlpha),
                                 fontSize = 12.sp
                             )
                         }
-                        // Show match date when not urgent; CTA label otherwise
-                        if (!isUrgent && matchDateLabel.isNotEmpty()) {
+                        if (countdownText.isNotEmpty()) {
                             Text(
-                                matchDateLabel,
-                                color = Dim.copy(alpha = 0.6f),
-                                fontSize = 10.sp
-                            )
-                        } else {
-                            Text(
-                                ctaLabel,
+                                countdownText,
                                 color = ctaColor,
                                 fontFamily = ironManFont,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
                                 letterSpacing = 1.sp
                             )
@@ -1363,33 +1434,29 @@ private fun ScoreEntryCard(
             Text("Your Prediction", color = Dim, fontSize = 12.sp, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Shared 3-slot layout (weight | separator | weight) used for BOTH the
+            // team-name row and the stepper row, so each name sits dead-centre over
+            // its stepper and the "—" lines up with the score numbers.
+            val sepWidth = 32.dp
+
+            // Team names — bottom-aligned so a 2-line name still sits just above its stepper
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                verticalAlignment = Alignment.Bottom
             ) {
-                // Home team stepper
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    val homeFlag = flagFor(fixture.homeTeam)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        if (homeFlag.isNotEmpty()) {
-                            Text(homeFlag, fontSize = 14.sp)
-                            Spacer(Modifier.width(4.dp))
-                        }
-                        Text(
-                            fixture.homeTeam, color = Gold,
-                            fontFamily = ironManFont, fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
+                NameLabel(fixture.homeTeam, ironManFont, Modifier.weight(1f))
+                Spacer(Modifier.width(sepWidth))
+                NameLabel(fixture.awayTeam, ironManFont, Modifier.weight(1f))
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Steppers + centre separator, all vertically aligned on one row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     GoalStepper(
                         value = homeGoals,
                         onDecrement = { if (homeGoals > 0) onHomeGoalsChange(homeGoals - 1) },
@@ -1398,34 +1465,10 @@ private fun ScoreEntryCard(
                         ironManFont = ironManFont
                     )
                 }
-
-                Text(
-                    "—", color = Color(0xFF444444), fontSize = 28.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
-
-                // Away team stepper
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    val awayFlag = flagFor(fixture.awayTeam)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        if (awayFlag.isNotEmpty()) {
-                            Text(awayFlag, fontSize = 14.sp)
-                            Spacer(Modifier.width(4.dp))
-                        }
-                        Text(
-                            fixture.awayTeam, color = Gold,
-                            fontFamily = ironManFont, fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
+                Box(modifier = Modifier.width(sepWidth), contentAlignment = Alignment.Center) {
+                    Text("—", color = Color(0xFF444444), fontSize = 28.sp)
+                }
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     GoalStepper(
                         value = awayGoals,
                         onDecrement = { if (awayGoals > 0) onAwayGoalsChange(awayGoals - 1) },
@@ -1664,5 +1707,86 @@ private fun WildcardEntryCard(
                 Text("Confirm Wildcard", color = Color.White, fontFamily = ironManFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
+    }
+}
+
+// ── GW Deadline Banner ────────────────────────────────────────────────────────
+// Shows the single gameweek deadline (= first kickoff) above all fixture cards.
+// Replaces the confusing per-fixture countdown that used to appear on each card.
+
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+private fun GwDeadlineBanner(
+    gwDeadline: LocalDateTime,
+    now: LocalDateTime,
+    ironManFont: FontFamily
+) {
+    val d = Duration.between(now, gwDeadline)
+    val isLocked = d.isNegative || d.isZero
+
+    val totalMins  = if (isLocked) 0L else d.toMinutes()
+    val totalHours = if (isLocked) 0L else d.toHours()
+    val isCritical = !isLocked && totalMins < 10
+    val isUrgent   = !isLocked && totalMins < 60
+
+    val color = when {
+        isLocked   -> Color(0xFF555555)
+        isCritical -> Color(0xFFF44336)
+        isUrgent   -> Color(0xFFFF8C00)
+        else       -> Gold
+    }
+
+    val pulseTransition = rememberInfiniteTransition(label = "banner_pulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue  = 0.5f,
+        targetValue   = 1f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bannerAlpha"
+    )
+    val alpha = if (isCritical) pulseAlpha else 1f
+
+    val countdownText = when {
+        isLocked   -> "LOCKED"
+        totalHours >= 24 -> {
+            val days  = totalHours / 24
+            val hours = totalHours % 24
+            "${days}d ${hours}h"
+        }
+        totalHours > 0 -> {
+            val mins = d.toMinutes() % 60
+            "${totalHours}h ${mins}m"
+        }
+        else -> "${totalMins}m"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(color.copy(alpha = 0.08f * alpha), RoundedCornerShape(8.dp))
+            .border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(if (isLocked) "🔒" else "⏱️", fontSize = 13.sp)
+            Text(
+                if (isLocked) "PREDICTIONS LOCKED" else "GW CLOSES IN",
+                color = color.copy(alpha = alpha),
+                fontFamily = ironManFont,
+                fontSize = 11.sp,
+                letterSpacing = 1.sp
+            )
+        }
+        Text(
+            countdownText,
+            color = color.copy(alpha = alpha),
+            fontFamily = ironManFont,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }

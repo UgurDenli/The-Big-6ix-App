@@ -12,9 +12,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Date
+
+data class CsvFixture(
+    val homeTeam: String,
+    val awayTeam: String
+)
 
 data class PredictionAuditEntry(
     val userName: String,
@@ -62,58 +68,25 @@ class AdminViewModel : ViewModel() {
     private val _isAuditLoading = MutableStateFlow(false)
     val isAuditLoading: StateFlow<Boolean> = _isAuditLoading
 
-    // ── Load points audit for a gameweek ─────────────────────────────────────
+    // ── Load points audit for a gameweek (via Cloud Function) ────────────────
 
     fun loadPointsAudit(gameweek: Int) {
+        val user = auth.currentUser ?: run { _toast.value = "Not logged in"; return }
         viewModelScope.launch {
             _isAuditLoading.value = true
             try {
-                // Fetch all predictions for this gameweek
-                val predSnap = db.collection("predictions")
-                    .whereEqualTo("gameweek", gameweek)
-                    .get().await()
-
-                // Fetch fixtures for this gameweek
-                val fixtureSnap = db.collection("fixtures")
-                    .whereEqualTo("gameweek", gameweek)
-                    .get().await()
-                val fixtureMap = fixtureSnap.documents.associate { doc ->
-                    doc.id to Pair(
-                        doc.getLong("homeTeamGoals")?.toInt() ?: -1,
-                        doc.getLong("awayTeamGoals")?.toInt() ?: -1
-                    )
+                val idToken = user.getIdToken(false).await().token
+                    ?: run { _toast.value = "Could not get ID token"; return@launch }
+                val (code, body) = httpGet(
+                    url   = "https://us-central1-the-big-6ix.cloudfunctions.net/adminGetPointsAudit?gameweek=$gameweek",
+                    token = idToken
+                )
+                if (code != 200) {
+                    _toast.value = "Audit failed (HTTP $code)"
+                    return@launch
                 }
-
-                // Fetch user names
-                val userIds = predSnap.documents.mapNotNull { it.getString("userId") }.distinct()
-                val userMap = mutableMapOf<String, String>()
-                userIds.chunked(30).forEach { chunk ->
-                    db.collection("users").whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
-                        .get().await()
-                        .documents.forEach { doc ->
-                            userMap[doc.id] = doc.getString("fullName") ?: "Unknown"
-                        }
-                }
-
-                val entries = predSnap.documents.mapNotNull { doc ->
-                    val fixtureId = doc.getString("fixtureId") ?: return@mapNotNull null
-                    val (actualHome, actualAway) = fixtureMap[fixtureId] ?: Pair(-1, -1)
-                    if (actualHome < 0) return@mapNotNull null // only scored fixtures
-                    val userId = doc.getString("userId") ?: return@mapNotNull null
-                    PredictionAuditEntry(
-                        userName = userMap[userId] ?: "Unknown",
-                        homeTeam = doc.getString("homeTeam") ?: "",
-                        awayTeam = doc.getString("awayTeam") ?: "",
-                        predictedHome = doc.getLong("homeTeamGoals")?.toInt() ?: 0,
-                        predictedAway = doc.getLong("awayTeamGoals")?.toInt() ?: 0,
-                        actualHome = actualHome,
-                        actualAway = actualAway,
-                        points = doc.getLong("points")?.toInt() ?: 0,
-                        wildcardUsed = doc.getBoolean("wildcardUsed") ?: false,
-                        captainUsed = doc.getBoolean("captainUsed") ?: false
-                    )
-                }.sortedWith(compareByDescending<PredictionAuditEntry> { it.points }.thenBy { it.userName })
-
+                // Parse JSON array manually (avoid adding a JSON library)
+                val entries = parseAuditJson(body)
                 _auditEntries.value = entries
             } catch (e: Exception) {
                 _toast.value = "Audit failed: ${e.message}"
@@ -121,6 +94,29 @@ class AdminViewModel : ViewModel() {
                 _isAuditLoading.value = false
             }
         }
+    }
+
+    private fun parseAuditJson(json: String): List<PredictionAuditEntry> {
+        // Minimal JSON parser for the audit entries array
+        return try {
+            val root = JSONObject(json)
+            val arr = root.getJSONArray("entries")
+            (0 until arr.length()).map { i ->
+                val o: JSONObject = arr.getJSONObject(i)
+                PredictionAuditEntry(
+                    userName      = o.optString("userName", "Unknown"),
+                    homeTeam      = o.optString("homeTeam", ""),
+                    awayTeam      = o.optString("awayTeam", ""),
+                    predictedHome = o.optInt("predictedHome", 0),
+                    predictedAway = o.optInt("predictedAway", 0),
+                    actualHome    = o.optInt("actualHome", -1),
+                    actualAway    = o.optInt("actualAway", -1),
+                    points        = o.optInt("points", 0),
+                    wildcardUsed  = o.optBoolean("wildcardUsed", false),
+                    captainUsed   = o.optBoolean("captainUsed", false)
+                )
+            }
+        } catch (_: Exception) { emptyList() }
     }
 
     // ── Load fixtures for a gameweek ──────────────────────────────────────────
@@ -217,6 +213,150 @@ class AdminViewModel : ViewModel() {
         }
     }
 
+    // ── Reset all user tokens via Cloud Function ─────────────────────────────
+
+    fun resetAllTokens(onDone: (String) -> Unit = {}) {
+        val user = auth.currentUser ?: run { _toast.value = "Not logged in"; return }
+        viewModelScope.launch {
+            _isBusy.value = true
+            try {
+                val idToken = user.getIdToken(false).await().token
+                    ?: run { _toast.value = "Could not get ID token"; return@launch }
+                val (code, body) = httpPost(
+                    url   = "https://us-central1-the-big-6ix.cloudfunctions.net/adminResetAllTokens",
+                    token = idToken
+                )
+                val msg = if (code == 200) "Tokens reset ✓" else "Failed (HTTP $code): $body"
+                _toast.value = msg
+                if (code == 200) onDone(msg)
+            } catch (e: Exception) {
+                _toast.value = "Token reset failed: ${e.message}"
+            } finally {
+                _isBusy.value = false
+            }
+        }
+    }
+
+    // ── Reset tokens for a single user via Cloud Function ────────────────────
+
+    fun resetUserTokensByName(name: String, onDone: (String) -> Unit = {}) {
+        val user = auth.currentUser ?: run { _toast.value = "Not logged in"; return }
+        viewModelScope.launch {
+            _isBusy.value = true
+            try {
+                val idToken = user.getIdToken(false).await().token
+                    ?: run { _toast.value = "Could not get ID token"; return@launch }
+                val (code, body) = httpPostJson(
+                    url   = "https://us-central1-the-big-6ix.cloudfunctions.net/adminResetUserTokens",
+                    token = idToken,
+                    json  = """{"name":"${name.trim().replace("\"","\\\"")}" }"""
+                )
+                val msg = if (code == 200) "Tokens reset for ${name.trim()} ✓" else "Failed (HTTP $code): $body"
+                _toast.value = msg
+                if (code == 200) onDone(msg)
+            } catch (e: Exception) {
+                _toast.value = "Reset failed: ${e.message}"
+            } finally {
+                _isBusy.value = false
+            }
+        }
+    }
+
+    // ── Send GW winner push notification via Cloud Function ───────────────────
+
+    fun sendGwWinnerNotification(gameweek: Int) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            try {
+                val (code, body) = httpPost(
+                    url   = "https://us-central1-the-big-6ix.cloudfunctions.net/sendGwWinnerNotification?gameweek=$gameweek",
+                    token = null
+                )
+                _toast.value = if (code == 200) "GW$gameweek notification sent ✓" else "HTTP $code: $body"
+            } catch (e: Exception) {
+                _toast.value = "Error: ${e.message}"
+            } finally {
+                _isBusy.value = false
+            }
+        }
+    }
+
+    // ── Send custom push notification to all users ────────────────────────────
+
+    fun sendCustomNotification(title: String, body: String) {
+        val user = auth.currentUser ?: run { _toast.value = "Not logged in"; return }
+        viewModelScope.launch {
+            _isBusy.value = true
+            try {
+                val idToken = user.getIdToken(false).await().token
+                    ?: run { _toast.value = "Could not get ID token"; return@launch }
+                val (code, resp) = httpPostJson(
+                    url   = "https://us-central1-the-big-6ix.cloudfunctions.net/sendCustomNotification",
+                    token = idToken,
+                    json  = """{"title":"${title.replace("\"","\\\"")}", "body":"${body.replace("\"","\\\"")}" }"""
+                )
+                _toast.value = if (code == 200) "Notification sent ✓" else "HTTP $code: $resp"
+            } catch (e: Exception) {
+                _toast.value = "Error: ${e.message}"
+            } finally {
+                _isBusy.value = false
+            }
+        }
+    }
+
+    // ── Parse CSV text into fixture list ──────────────────────────────────────
+
+    fun parseCsvFixtures(text: String): List<CsvFixture> =
+        text.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .mapNotNull { line ->
+                // Supports: "HomeTeam vs AwayTeam" or "HomeTeam - AwayTeam" or "HomeTeam,AwayTeam"
+                val parts = when {
+                    line.contains(" vs ", ignoreCase = true) ->
+                        line.split(Regex(" vs ", RegexOption.IGNORE_CASE), 2)
+                    line.contains(" - ") ->
+                        line.split(" - ", limit = 2)
+                    line.contains(",") ->
+                        line.split(",", limit = 2)
+                    else -> return@mapNotNull null
+                }
+                if (parts.size == 2) CsvFixture(parts[0].trim(), parts[1].trim()) else null
+            }
+
+    // ── Bulk-create fixtures from CSV ────────────────────────────────────────
+
+    fun importFixtures(fixtures: List<CsvFixture>, gameweek: Int, deadlineMs: Long) {
+        if (fixtures.isEmpty()) { _toast.value = "No fixtures to import"; return }
+        viewModelScope.launch {
+            _isBusy.value = true
+            try {
+                fixtures.chunked(500).forEach { chunk ->
+                    val batch = db.batch()
+                    chunk.forEach { f ->
+                        val ref = db.collection("fixtures").document()
+                        batch.set(ref, mapOf(
+                            "homeTeam"      to f.homeTeam,
+                            "awayTeam"      to f.awayTeam,
+                            "gameweek"      to gameweek,
+                            "deadline"      to Timestamp(Date(deadlineMs)),
+                            "homeTeamGoals" to -1,
+                            "awayTeamGoals" to -1,
+                            "winner"        to "",
+                            "date"          to ""
+                        ))
+                    }
+                    batch.commit().await()
+                }
+                _toast.value = "Imported ${fixtures.size} fixture${if (fixtures.size != 1) "s" else ""} ✓"
+            } catch (e: Exception) {
+                _toast.value = "Import failed: ${e.message}"
+            } finally {
+                _isBusy.value = false
+            }
+        }
+    }
+
     // ── Season reset via Cloud Function ──────────────────────────────────────
 
     fun triggerSeasonReset() {
@@ -239,7 +379,7 @@ class AdminViewModel : ViewModel() {
         }
     }
 
-    // ── HTTP helper ───────────────────────────────────────────────────────────
+    // ── HTTP helpers ──────────────────────────────────────────────────────────
 
     private suspend fun httpPost(url: String, token: String?): Pair<Int, String> =
         withContext(Dispatchers.IO) {
@@ -250,6 +390,39 @@ class AdminViewModel : ViewModel() {
                 doOutput       = false
                 token?.let { setRequestProperty("Authorization", "Bearer $it") }
             }
+            val code = conn.responseCode
+            val body = runCatching { conn.inputStream.bufferedReader().readText() }
+                .getOrElse { conn.errorStream?.bufferedReader()?.readText() ?: "" }
+            conn.disconnect()
+            Pair(code, body)
+        }
+
+    private suspend fun httpGet(url: String, token: String?): Pair<Int, String> =
+        withContext(Dispatchers.IO) {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 60_000
+                readTimeout    = 60_000
+                token?.let { setRequestProperty("Authorization", "Bearer $it") }
+            }
+            val code = conn.responseCode
+            val body = runCatching { conn.inputStream.bufferedReader().readText() }
+                .getOrElse { conn.errorStream?.bufferedReader()?.readText() ?: "" }
+            conn.disconnect()
+            Pair(code, body)
+        }
+
+    private suspend fun httpPostJson(url: String, token: String?, json: String): Pair<Int, String> =
+        withContext(Dispatchers.IO) {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 60_000
+                readTimeout    = 60_000
+                doOutput       = true
+                setRequestProperty("Content-Type", "application/json")
+                token?.let { setRequestProperty("Authorization", "Bearer $it") }
+            }
+            conn.outputStream.bufferedWriter().use { it.write(json) }
             val code = conn.responseCode
             val body = runCatching { conn.inputStream.bufferedReader().readText() }
                 .getOrElse { conn.errorStream?.bufferedReader()?.readText() ?: "" }

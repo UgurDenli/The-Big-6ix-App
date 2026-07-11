@@ -12,6 +12,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Date
 
+data class GwWinner(
+    val uid: String = "",
+    val name: String = "",
+    val gwPoints: Int = 0,
+    val gameweek: Int = 0,
+    val profileImageUrl: String? = null
+)
+
 data class LeaderboardUser(
     val uid: String = "",
     val name: String = "",
@@ -32,12 +40,6 @@ data class HomeUiState(
     val nextGwFixtureCount: Int = 0,
     val nextGwPredicted: Int = 0,
     val nextDeadlineMs: Long? = null,
-    // Last GW summary
-    val lastGwNumber: Int? = null,
-    val lastGwUserPoints: Int = 0,
-    val gwWinnerName: String? = null,
-    val gwWinnerUid: String? = null,
-    val gwWinnerImageUrl: String? = null,
     // Leaderboard preview (top 3)
     val topUsers: List<LeaderboardUser> = emptyList()
 )
@@ -49,15 +51,11 @@ class HomeViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState
 
-    // Keep backward-compat fields used by other composables
     private val _leaderboard = MutableStateFlow<List<LeaderboardUser>>(emptyList())
     val leaderboard: StateFlow<List<LeaderboardUser>> = _leaderboard
 
-    private val _latestGwWinnerUid = MutableStateFlow<String?>(null)
-    val latestGwWinnerUid: StateFlow<String?> = _latestGwWinnerUid
-
-    private val _latestGwNumber = MutableStateFlow<Int?>(null)
-    val latestGwNumber: StateFlow<Int?> = _latestGwNumber
+    private val _gwWinner = MutableStateFlow<GwWinner?>(null)
+    val gwWinner: StateFlow<GwWinner?> = _gwWinner
 
     private var listenerRegistration: ListenerRegistration? = null
     private var gwWinnerListener: ListenerRegistration? = null
@@ -65,30 +63,54 @@ class HomeViewModel : ViewModel() {
 
     init {
         startRealtimeListener()
+        loadUserStats()
+        loadNextGw()
         startGwWinnerListener()
+    }
+
+    // ── Public refresh (called by pull-to-refresh) ────────────────────────────
+
+    fun refresh() {
+        _uiState.value = _uiState.value.copy(isLoading = true)
         loadUserStats()
         loadNextGw()
     }
+
+    // ── User stats + accurate rank ────────────────────────────────────────────
 
     private fun loadUserStats() {
         val uid = auth.currentUser?.uid ?: return
         viewModelScope.launch {
             try {
-                val doc = db.collection("users").document(uid).get().await()
+                val doc    = db.collection("users").document(uid).get().await()
                 val name   = doc.getString("fullName") ?: auth.currentUser?.displayName ?: "Player"
                 val points = doc.getLong("score")?.toInt() ?: 0
                 val imgUrl = doc.getString("profileImageUrl")
+                // ✅ Accurate global rank via count query (works for any position)
+                val higherCount = try {
+                    db.collection("users")
+                        .whereGreaterThan("score", points)
+                        .get().await()
+                        .documents.size
+                } catch (_: Exception) { 0 }
+
                 _uiState.value = _uiState.value.copy(
-                    userName = name,
-                    userTotalPoints = points,
-                    userProfileImageUrl = imgUrl
+                    userName            = name,
+                    userTotalPoints     = points,
+                    userProfileImageUrl = imgUrl,
+                    userRank            = higherCount + 1
                 )
             } catch (_: Exception) {}
         }
     }
 
+    // ── Next GW (deadline + prediction count) ────────────────────────────────
+
     private fun loadNextGw() {
-        val uid = auth.currentUser?.uid ?: return
+        val uid = auth.currentUser?.uid ?: run {
+            viewModelScope.launch { _uiState.value = _uiState.value.copy(isLoading = false) }
+            return
+        }
         viewModelScope.launch {
             try {
                 val now      = Date()
@@ -102,44 +124,23 @@ class HomeViewModel : ViewModel() {
                     return@launch
                 }
 
-                // Find the nearest gameweek
-                val nearestGw = upcoming.mapNotNull { it.getLong("gameweek")?.toInt() }.minOrNull()
-                val gwFixtures = upcoming.filter { it.getLong("gameweek")?.toInt() == nearestGw }
-                val earliestDeadline = gwFixtures.mapNotNull { it.getTimestamp("deadline")?.toDate() }.minOrNull()
+                val nearestGw    = upcoming.mapNotNull { it.getLong("gameweek")?.toInt() }.minOrNull()
+                val gwFixtures   = upcoming.filter { it.getLong("gameweek")?.toInt() == nearestGw }
+                val earliest     = gwFixtures.mapNotNull { it.getTimestamp("deadline")?.toDate() }.minOrNull()
                 val gwFixtureIds = gwFixtures.map { it.id }.toSet()
 
-                // How many of this GW has the user predicted?
                 val preds = db.collection("predictions")
                     .whereEqualTo("userId", uid)
                     .get().await()
-                val predictedIds = preds.documents.mapNotNull { it.getString("fixtureId") }.toSet()
+                val predictedIds   = preds.documents.mapNotNull { it.getString("fixtureId") }.toSet()
                 val predictedCount = gwFixtureIds.intersect(predictedIds).size
 
-                // Last completed GW — look at predictions with points
-                val lastGwPredictions = preds.documents.filter { doc ->
-                    val gwDoc = fixtures.documents.firstOrNull { f -> f.id == doc.getString("fixtureId") }
-                    val gw = gwDoc?.getLong("gameweek")?.toInt() ?: 0
-                    gw != nearestGw && doc.getLong("points") != null
-                }
-                val lastGwNum = lastGwPredictions.mapNotNull { doc ->
-                    fixtures.documents.firstOrNull { f -> f.id == doc.getString("fixtureId") }
-                        ?.getLong("gameweek")?.toInt()
-                }.maxOrNull()
-                val lastGwPts = if (lastGwNum != null) {
-                    lastGwPredictions.filter { doc ->
-                        fixtures.documents.firstOrNull { f -> f.id == doc.getString("fixtureId") }
-                            ?.getLong("gameweek")?.toInt() == lastGwNum
-                    }.sumOf { it.getLong("points")?.toInt() ?: 0 }
-                } else 0
-
                 _uiState.value = _uiState.value.copy(
-                    isLoading        = false,
-                    nextGwNumber     = nearestGw,
+                    isLoading          = false,
+                    nextGwNumber       = nearestGw,
                     nextGwFixtureCount = gwFixtures.size,
-                    nextGwPredicted  = predictedCount,
-                    nextDeadlineMs   = earliestDeadline?.time,
-                    lastGwNumber     = lastGwNum,
-                    lastGwUserPoints = lastGwPts
+                    nextGwPredicted    = predictedCount,
+                    nextDeadlineMs     = earliest?.time
                 )
             } catch (_: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false)
@@ -147,26 +148,7 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    private fun startGwWinnerListener() {
-        gwWinnerListener = db.collection("gameweekWinners")
-            .orderBy("gameweek", Query.Direction.DESCENDING)
-            .limit(1)
-            .addSnapshotListener { snap, _ ->
-                val doc = snap?.documents?.firstOrNull() ?: return@addSnapshotListener
-                val winnerUid  = doc.getString("userId")
-                val winnerName = doc.getString("userName")
-                val winnerImg  = doc.getString("userImageUrl")
-                val gwNum      = doc.getLong("gameweek")?.toInt()
-                _latestGwWinnerUid.value = winnerUid
-                _latestGwNumber.value    = gwNum
-                _uiState.value = _uiState.value.copy(
-                    lastGwNumber    = gwNum,
-                    gwWinnerName    = winnerName,
-                    gwWinnerUid     = winnerUid,
-                    gwWinnerImageUrl = winnerImg
-                )
-            }
-    }
+    // ── Real-time leaderboard (top 10) ────────────────────────────────────────
 
     private fun startRealtimeListener() {
         val uid = auth.currentUser?.uid
@@ -175,27 +157,57 @@ class HomeViewModel : ViewModel() {
             .limit(10)
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot == null) return@addSnapshotListener
-                val newTopUid    = snapshot.documents.firstOrNull()?.id
+                val newTopUid     = snapshot.documents.firstOrNull()?.id
                 val leaderChanged = previousTopUid != null && newTopUid != previousTopUid
-                previousTopUid = newTopUid
+                previousTopUid    = newTopUid
 
                 val users = snapshot.documents.mapIndexed { index, doc ->
                     LeaderboardUser(
-                        uid            = doc.id,
-                        name           = doc.getString("fullName") ?: "Anonymous",
-                        totalScore     = doc.getLong("score")?.toInt() ?: 0,
+                        uid             = doc.id,
+                        name            = doc.getString("fullName") ?: "Anonymous",
+                        totalScore      = doc.getLong("score")?.toInt() ?: 0,
                         profileImageUrl = doc.getString("profileImageUrl"),
-                        isNewLeader    = index == 0 && leaderChanged
+                        isNewLeader     = index == 0 && leaderChanged
                     )
                 }
                 _leaderboard.value = users
 
-                // Compute current user rank
-                val rank = users.indexOfFirst { it.uid == uid }.takeIf { it >= 0 }?.plus(1) ?: 0
-                _uiState.value = _uiState.value.copy(
-                    topUsers  = users.take(3),
-                    userRank  = rank
-                )
+                // ✅ Only update rank from listener if user IS in top 10
+                val idx = users.indexOfFirst { it.uid == uid }
+                if (idx >= 0) {
+                    _uiState.value = _uiState.value.copy(topUsers = users.take(3), userRank = idx + 1)
+                } else {
+                    // User not in top 10 — preserve accurate rank set by loadUserStats()
+                    _uiState.value = _uiState.value.copy(topUsers = users.take(3))
+                }
+            }
+    }
+
+    // ── Latest GW winner listener ─────────────────────────────────────────────
+
+    private fun startGwWinnerListener() {
+        gwWinnerListener = db.collection("gameweekWinners")
+            .orderBy("gameweek", Query.Direction.DESCENDING)
+            .limit(1)
+            .addSnapshotListener { snap, _ ->
+                val doc = snap?.documents?.firstOrNull() ?: return@addSnapshotListener
+                val uid      = doc.getString("userId") ?: return@addSnapshotListener
+                val gameweek = doc.getLong("gameweek")?.toInt() ?: return@addSnapshotListener
+                val gwPoints = doc.getLong("points")?.toInt() ?: 0
+                viewModelScope.launch {
+                    try {
+                        val userDoc = db.collection("users").document(uid).get().await()
+                        _gwWinner.value = GwWinner(
+                            uid             = uid,
+                            name            = userDoc.getString("fullName") ?: "Unknown",
+                            gwPoints        = gwPoints,
+                            gameweek        = gameweek,
+                            profileImageUrl = userDoc.getString("profileImageUrl")
+                        )
+                    } catch (_: Exception) {
+                        _gwWinner.value = GwWinner(uid = uid, gameweek = gameweek, gwPoints = gwPoints)
+                    }
+                }
             }
     }
 

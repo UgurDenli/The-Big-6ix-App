@@ -157,7 +157,7 @@ exports.verifyDiscordRole = functions
     }
   });
 });
-const SCORING_FUNCTION_VERSION = "gw35-rescore-debug-v2";
+const SCORING_FUNCTION_VERSION = "token-multipliers-v1";
 
 const getNumberValue = (...values) => {
   for (const value of values) {
@@ -342,6 +342,99 @@ const resetGameweekPredictionState = async (targetGameweek) => {
   };
 };
 
+const generateNotificationBody = (basePoints, captainApplied, doubleDownApplied, predScore, finalScore, points) => {
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  if (basePoints === 3) {
+    const exactOptions = [
+      `⭐ ${finalScore}. You called it like Pep's got a secret data centre. Precision. +${points} pts`,
+      `🎯 ${finalScore} on the dot. More accurate than Arsenal's title predictions. Exact score. +${points} pts`,
+      `📟 ${finalScore}. You didn't bottle it like Spurs in March. Dead on. +${points} pts`,
+      `🧠 ${finalScore} exactly. Man United couldn't aim that straight. +${points} pts`,
+      // 2025/26 season
+      `🎯 ${finalScore}. Nailed it like Arsenal finally nailed the league. Bang on. +${points} pts`,
+      `🔮 ${finalScore} exact. More composed than Liverpool's back four all season. +${points} pts`,
+      `📐 ${finalScore} to the inch. You actually defended your call, unlike Liverpool. +${points} pts`,
+    ];
+
+    if (captainApplied && doubleDownApplied) {
+      const both = [
+        `👑🔥 BOTH TOKENS. EXACT SCORE. ${finalScore}. You are not normal. Even Pep's jealous. +${points} pts`,
+        `👑🔥 Captain. Double Down. Exact on ${finalScore}. More commitment than Tottenham's entire season. +${points} pts`,
+        `👑🔥 ${finalScore} exact, armband on, doubled down. The confidence of a Big 6 team that actually won something. +${points} pts`,
+        // 2025/26 season
+        `👑🔥 Captain + double down, ${finalScore} exact. More trophies than Chelsea, Liverpool and Spurs combined. +${points} pts`,
+        `👑🔥 Both tokens, ${finalScore} spot on. A cup double of your own — eat your heart out, City. +${points} pts`,
+      ];
+      return pick(both);
+    } else if (captainApplied) {
+      const captain = [
+        `👑 CAPTAIN'S ARMBAND. ${finalScore} EXACT. You've got Pep's attention to detail. +${points} pts`,
+        `👑 Captained it AND called it. ${finalScore}. Arsenal could learn commitment from you. +${points} pts`,
+        `👑 The armband came through. ${finalScore} on the button. Not a Tottenham bottle job. +${points} pts`,
+        // 2025/26 season
+        `👑 Captain nailed ${finalScore} exactly. The title-winning composure Arteta finally found. +${points} pts`,
+        `👑 Armband delivered ${finalScore} on the nose. City could've used you in the title race. +${points} pts`,
+      ];
+      return pick(captain);
+    } else if (doubleDownApplied) {
+      const ddOptions = [
+        `🔥 DOUBLED DOWN ON ${finalScore} EXACT. That's conviction Arsenal could use. Absolute filth. +${points} pts`,
+        `🔥 You backed yourself on the exact score and it came in. More guts than Spurs. +${points} pts`,
+        `🔥 Double Down on ${finalScore}. You committed harder than Chelsea commits to a formation. +${points} pts`,
+        // 2025/26 season
+        `🔥 Doubled down on ${finalScore}, exact. More clutch than City in the cup finals. +${points} pts`,
+        `🔥 All-in on ${finalScore} and it landed. The nerve Chelsea never showed all year. +${points} pts`,
+      ];
+      return pick(ddOptions);
+    }
+    return pick(exactOptions);
+  } else if (basePoints === 1) {
+    const outcomeOptions = [
+      `✅ Right result, wrong score. Still better than Liverpool's defending last season. +${points} pts`,
+      `👀 Outcome nailed, score chaotic. You're 50% there — which is better than Chelsea's system. +${points} pts`,
+      `🎲 Result-right, number-wrong. More consistent than Tottenham's form. Take the point. +${points} pts`,
+      // 2025/26 season
+      `✅ Right result, wrong score. More end product than Chelsea's whole season. +${points} pts`,
+      `🧭 Right outcome, off on the digits. Closer than City got to the title. +${points} pts`,
+      `👍 Got the winner, missed the score. Tighter than anything Spurs did near the drop. +${points} pts`,
+    ];
+
+    if (captainApplied && doubleDownApplied) {
+      return `👑🔥 Result correct, captain + double down locked in. ${finalScore} wasn't exact but you made it count. +${points} pts`;
+    } else if (captainApplied) {
+      const capOutcome = [
+        `👑 Captain got the result. Score off but who cares — you're still more decisive than Man United's planning. +${points} pts`,
+        `👑 Captain got the result. Held firmer than Liverpool's defence ever did. +${points} pts`,
+      ];
+      return pick(capOutcome);
+    } else if (doubleDownApplied) {
+      const ddOutcome = [
+        `🔥 Doubled Down on the result. Score was off but the call landed. Better odds than Man United's Europa chances. +${points} pts`,
+        `🔥 Double down, right result. Smarter business than Chelsea's transfer splurge. +${points} pts`,
+      ];
+      return pick(ddOutcome);
+    }
+    return pick(outcomeOptions);
+  } else {
+    const wrongOptions = [
+      `😬 ${predScore}? You predicted like Arsenal picking strikers. Final: ${finalScore}. Better luck next week.`,
+      `🚮 You said ${predScore}, it was ${finalScore}. Even Man United didn't miss by that much on transfers. 💀`,
+      `🙈 Bold prediction: ${predScore}. Reality: ${finalScore}. You've got Spurs-level accuracy today.`,
+      `📺 ${predScore} vs ${finalScore}. Your prediction had the gap of Man United's ambition and results.`,
+      // 2025/26 season
+      `💀 ${predScore} vs ${finalScore}. Bottled it like City bottled the league to Arsenal.`,
+      `🪦 ${predScore}? Finished ${finalScore}. Defended worse than Liverpool this season.`,
+      `🤡 You said ${predScore}, it was ${finalScore}. A Chelsea-finishing-10th level of wrong.`,
+      `📉 ${predScore}? Final ${finalScore}. Scrapping at the bottom with Spurs.`,
+      `😬 ${predScore} nowhere near ${finalScore}. Amorim got sacked for a start like that.`,
+      `🦐 ${predScore}? It finished ${finalScore}. That prediction was worse than Man United losing to Grimsby.`,
+      `🥅 ${predScore} vs ${finalScore}. You skied that one like Gabriel's penalty in the UCL final.`,
+    ];
+    return pick(wrongOptions);
+  }
+};
+
 const getPredictionScorePair = (prediction) => ({
   home: getNumberValue(
     prediction.homeTeamGoals,
@@ -438,6 +531,15 @@ const recalculateGameweekDirect = async (targetGameweek) => {
   let skippedPredictionScoreMissing = 0;
   const userScoreDeltas = {};
   const fixtureCache = new Map();
+  const userDataCache = new Map();
+
+  const getUserData = async (userId) => {
+    if (userDataCache.has(userId)) return userDataCache.get(userId);
+    const doc = await usersRef.doc(userId).get();
+    const data = doc.data() || {};
+    userDataCache.set(userId, data);
+    return data;
+  };
 
   const commitIfNeeded = async () => {
     if (opCount >= batchSize) {
@@ -557,19 +659,43 @@ const recalculateGameweekDirect = async (targetGameweek) => {
       continue;
     }
 
-    let points = 0;
-    let scoringReason = "wrong_prediction";
+    let basePoints = 0;
+    let baseReason = "wrong_prediction";
 
     if (
       predictionScores.home === fixtureScores.home &&
       predictionScores.away === fixtureScores.away
     ) {
-      points = 3;
-      scoringReason = "exact_score";
+      basePoints = 3;
+      baseReason = "exact_score";
     } else if (predictedOutcome === actualOutcome) {
-      points = 1;
-      scoringReason = "correct_outcome";
+      basePoints = 1;
+      baseReason = "correct_outcome";
     }
+
+    let captainApplied = false;
+    let doubleDownApplied = false;
+
+    if (basePoints > 0) {
+      if (prediction.captainUsed === true) {
+        captainApplied = true;
+      }
+      if (prediction.userId) {
+        const userData = await getUserData(prediction.userId);
+        const fixtureGw = Number(fixture.gameweek ?? -1);
+        const ddGw = Number(userData.doubleDownUsedGameweek ?? -1);
+        if (fixtureGw >= 0 && ddGw === fixtureGw) {
+          doubleDownApplied = true;
+        }
+      }
+    }
+
+    const multiplier = (captainApplied ? 2 : 1) * (doubleDownApplied ? 2 : 1);
+    const points = basePoints * multiplier;
+
+    const scoringReason = baseReason
+      + (captainApplied    ? "_captain"     : "")
+      + (doubleDownApplied ? "_double_down" : "");
 
     batch.update(predictionDoc.ref, {
       scoredPoints: true,
@@ -577,6 +703,8 @@ const recalculateGameweekDirect = async (targetGameweek) => {
       isCorrect: points > 0,
       ignoredDuplicate: false,
       scoringReason,
+      captainApplied,
+      doubleDownApplied,
       debugFixtureId: fixtureId,
       debugActualHomeGoals: fixtureScores.home,
       debugActualAwayGoals: fixtureScores.away,
@@ -648,6 +776,16 @@ const calculatePoints = async (targetGameweek = null, options = {}) => {
   const userScoreAdjustments = {};
   let processedFixtures = 0;
   let processedPredictions = 0;
+
+  // Per-run cache so each user doc is fetched at most once.
+  const userDataCache = new Map();
+  const getUserData = async (userId) => {
+    if (userDataCache.has(userId)) return userDataCache.get(userId);
+    const doc = await usersRef.doc(userId).get();
+    const data = doc.data() || {};
+    userDataCache.set(userId, data);
+    return data;
+  };
   let resetPredictions = 0;
   let skippedWrongGameweek = 0;
   let skippedNoResult = 0;
@@ -729,13 +867,18 @@ const calculatePoints = async (targetGameweek = null, options = {}) => {
         }
       }
 
+      // Pick the prediction with the latest submittedAt.
+      // IMPORTANT: do NOT use `null` as the reduce seed — when a user has no
+      // submittedAt (old Android clients), every comparison is 0 > 0 = false and
+      // `latest` would stay null, crashing the CF on `null.scoredPoints` later.
+      // Using predictions[0] as the seed ensures we always have a valid object.
       const validPrediction = predictions.reduce((latest, current) => {
-        const latestTime = latest?.submittedAt?.toMillis?.() ?? 0;
-        const currentTime = current?.submittedAt?.toMillis?.() ?? 0;
+        const latestTime = latest.submittedAt?.toMillis?.() ?? 0;
+        const currentTime = current.submittedAt?.toMillis?.() ?? 0;
         return currentTime > latestTime ? current : latest;
-      }, null);
+      });  // no initial value → uses predictions[0] as seed, iterates from index 1
 
-      if (!validPrediction) continue;
+      if (!validPrediction) continue; // safety guard (predictions is always non-empty)
 
       const duplicates = predictions.filter((p) => p.id !== validPrediction.id);
 
@@ -753,22 +896,57 @@ const calculatePoints = async (targetGameweek = null, options = {}) => {
         await commitIfNeeded();
       }
 
-      if (!rescore && validPrediction.scoredPoints === true) continue;
+      // Scoring reasons that indicate the prediction was zero-scored due to a bug
+      // or an incomplete fixture state rather than a genuine wrong/late prediction.
+      // These must be re-evaluated on every normal scoring run so the underlying
+      // issue (fixed deadline logic, fixture now having a result) is reflected.
+      //
+      // "submitted_after_gw_deadline"           — old CF used earliest-in-GW deadline;
+      //                                           now uses per-fixture deadline, so many of
+      //                                           these should now be valid.
+      // "fixture_not_complete_or_missing_score" — set by recalculateGameweekDirect when
+      //                                           the fixture had no result; needs re-check
+      //                                           now that the fixture may be complete.
+      // "fixture_scoped_reset_pending_recalculation" / "reset_pending_recalculation"
+      //                                         — transient states left if a rescore batch
+      //                                           aborted; always re-score.
+      const RESCORE_LEGACY_REASONS = new Set([
+        "submitted_after_gw_deadline",          // old CF used GW-wide deadline; now per-fixture
+        "missing_or_invalid_submittedAt",       // original Android bug: no submittedAt field
+        "fixture_not_complete_or_missing_score",// recalculate ran before fixture was complete
+        "fixture_scoped_reset_pending_recalculation", // transient reset state
+        "reset_pending_recalculation",          // transient reset state
+      ]);
 
+      const alreadyFinallyScored =
+        validPrediction.scoredPoints === true &&
+        !RESCORE_LEGACY_REASONS.has(validPrediction.scoringReason);
+
+      if (!rescore && alreadyFinallyScored) continue;
+
+      // Only enforce deadline when submittedAt is actually present and parseable.
+      // Predictions missing submittedAt were submitted by older Android clients that
+      // didn't include the field — give them benefit of the doubt rather than zero-scoring.
+      const hasSubmittedAt =
+        validPrediction.submittedAt &&
+        typeof validPrediction.submittedAt.toMillis === "function";
+
+      // Enforce per-fixture deadline: a prediction is valid as long as it was
+      // submitted before THAT fixture's own kickoff.  The UI shows a single GW
+      // deadline (earliest kickoff) to prevent confusion, but scoring must remain
+      // per-fixture so that legacy predictions submitted between Game 1's kickoff
+      // and Game N's kickoff (under the old per-fixture display) are not rejected.
       if (
         enforceDeadline &&
-        (!validPrediction.submittedAt ||
-          typeof validPrediction.submittedAt.toMillis !== "function" ||
-          validPrediction.submittedAt.toMillis() > fixture.deadline.toMillis())
+        hasSubmittedAt &&
+        validPrediction.submittedAt.toMillis() > fixture.deadline.toMillis()
       ) {
         batch.update(validPrediction.ref, {
           scoredPoints: true,
           isCorrect: false,
           awardedPoints: 0,
           ignoredDuplicate: false,
-          scoringReason: !validPrediction.submittedAt || typeof validPrediction.submittedAt.toMillis !== "function"
-            ? "missing_or_invalid_submittedAt"
-            : "submitted_after_deadline",
+          scoringReason: "submitted_after_deadline",
           debugDeadlineEnforced: enforceDeadline,
         });
 
@@ -809,27 +987,63 @@ const calculatePoints = async (targetGameweek = null, options = {}) => {
           ? "home"
           : "away";
 
-      let points = 0;
+      let basePoints = 0;
+      let baseReason = "wrong_prediction";
 
       if (
         predictionHomeGoals === fixtureHomeGoals &&
         predictionAwayGoals === fixtureAwayGoals
       ) {
-        points = 3;
+        basePoints = 3;
+        baseReason = "exact_score";
       } else if (predictedOutcome === actualOutcome) {
-        points = 1;
+        basePoints = 1;
+        baseReason = "correct_outcome";
       }
+
+      // Apply token multipliers when the prediction earned points.
+      let captainApplied = false;
+      let doubleDownApplied = false;
+
+      if (basePoints > 0) {
+        // Captain: 2× on this specific fixture
+        if (validPrediction.captainUsed === true) {
+          captainApplied = true;
+        }
+
+        // Double Down: 2× on ALL correct predictions in the GW it was used
+        const userData = await getUserData(userId);
+        const ddGw = Number(userData.doubleDownUsedGameweek ?? -1);
+        if (ddGw === fixtureGameweek) {
+          doubleDownApplied = true;
+        }
+      }
+
+      const multiplier = (captainApplied ? 2 : 1) * (doubleDownApplied ? 2 : 1);
+      const points = basePoints * multiplier;
+
+      const scoringReason = baseReason
+        + (captainApplied    ? "_captain"     : "")
+        + (doubleDownApplied ? "_double_down" : "");
+
+      // Guard against duplicate result pushes: a prediction is notified exactly
+      // once, ever. The scheduled scorer runs every 5 min and the manual endpoint
+      // can also push, so without this flag the same result fires repeatedly.
+      const alreadyNotified = validPrediction.resultNotificationSent === true;
+      const willNotify = sendPush && !alreadyNotified;
 
       batch.update(validPrediction.ref, {
         scoredPoints: true,
         isCorrect: points > 0,
         awardedPoints: points,
         ignoredDuplicate: false,
-        scoringReason: points === 3
-          ? "exact_score"
-          : points === 1
-          ? "correct_outcome"
-          : "wrong_prediction",
+        scoringReason,
+        captainApplied,
+        doubleDownApplied,
+        // Mark as notified as soon as we decide to push, so any concurrent/next
+        // run sees the flag and skips. Persists even if the FCM send below fails
+        // (better to miss one than spam — the score itself is always correct).
+        ...(willNotify ? { resultNotificationSent: true } : {}),
         debugActualHomeGoals: fixtureHomeGoals,
         debugActualAwayGoals: fixtureAwayGoals,
         debugPredictionHomeGoals: predictionHomeGoals,
@@ -848,23 +1062,53 @@ const calculatePoints = async (targetGameweek = null, options = {}) => {
           (userScoreAdjustments[userId] || 0) + points;
       }
 
-      if (sendPush && points > 0) {
+      if (willNotify) {
         try {
-          const userRef = usersRef.doc(userId);
-          const userDoc = await userRef.get();
-          const token = userDoc.data()?.fcmToken;
+          const userData = await getUserData(userId);
+          const token    = userData.fcmToken;
 
-          if (token) {
+          if (token && userData.pushNotificationsEnabled !== false) {
+            const homeTeam = fixture.homeTeam || "Home";
+            const awayTeam = fixture.awayTeam || "Away";
+
+            // Title is always the final scoreline — instantly readable on the lock screen
+            const title = `${homeTeam} ${fixtureHomeGoals}–${fixtureAwayGoals} ${awayTeam}`;
+            const finalScore = `${fixtureHomeGoals}–${fixtureAwayGoals}`;
+            const predScore = `${predictionHomeGoals}–${predictionAwayGoals}`;
+            const body = generateNotificationBody(basePoints, captainApplied, doubleDownApplied, predScore, finalScore, points);
+
+            // Stable per-result key so a duplicate delivery collapses instead of
+            // stacking — in the background tray (android tag) and via FCM's queue
+            // (collapseKey) when the device was offline.
+            const resultKey = `result_${fixtureId}`;
+
             await admin.messaging().send({
-              notification: {
-                title: `You earned ${points} point${points !== 1 ? "s" : ""}!`,
-                body: `Your score has been updated.`,
-              },
               token,
+              notification: { title, body },
+              // data.type routes the notification to the Results channel in Big6ixMessagingService (Android foreground)
+              data: { type: "result" },
+              android: {
+                priority: "high",
+                collapseKey: resultKey,
+                // channelId ensures the correct channel is used even when the app is in the background.
+                // tag makes a repeat of the SAME result replace the existing tray entry, not duplicate it.
+                notification: { channelId: "big6ix_results", tag: resultKey },
+              },
+              apns: {
+                // apns-collapse-id dedupes the same result on iOS too.
+                headers: { "apns-collapse-id": resultKey },
+                payload: { aps: { sound: "default" } },
+              },
             });
           }
         } catch (e) {
-          console.log("Push failed:", e.message);
+          // Clean up stale / revoked FCM tokens automatically
+          if (e.code === "messaging/registration-token-not-registered") {
+            await usersRef.doc(userId).update({ fcmToken: admin.firestore.FieldValue.delete() });
+            console.log(`Cleared stale FCM token for user ${userId}`);
+          } else {
+            console.warn(`FCM result push failed for ${userId}:`, e.message);
+          }
         }
       }
     }
@@ -910,6 +1154,41 @@ exports.calculatePoints = functions.pubsub.schedule("every 5 minutes").onRun(asy
 
 exports.manualCalculatePoints = functions.https.onRequest(async (req, res) => {
   try {
+    // ?debugFixture=wc26_537357  → show all predictions for one fixture
+    if (req.query.debugFixture) {
+      const fid = req.query.debugFixture;
+      const fixtureDoc = await db.collection("fixtures").doc(fid).get();
+      const predictionsSnap = await db.collection("predictions").where("fixtureId", "==", fid).get();
+      const fixture = fixtureDoc.exists ? {
+        id: fixtureDoc.id,
+        homeTeam: fixtureDoc.data().homeTeam,
+        awayTeam: fixtureDoc.data().awayTeam,
+        homeTeamGoals: fixtureDoc.data().homeTeamGoals,
+        awayTeamGoals: fixtureDoc.data().awayTeamGoals,
+        hasDeadline: !!fixtureDoc.data().deadline,
+        deadline: fixtureDoc.data().deadline?.toDate?.()?.toISOString() ?? null,
+      } : null;
+      const predictions = predictionsSnap.docs.map(doc => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          userId: d.userId,
+          fixtureId: d.fixtureId,
+          homeTeamGoals: d.homeTeamGoals,
+          awayTeamGoals: d.awayTeamGoals,
+          parsedHome: getPredictionHomeGoals(d),
+          parsedAway: getPredictionAwayGoals(d),
+          scoredPoints: d.scoredPoints,
+          awardedPoints: d.awardedPoints,
+          scoringReason: d.scoringReason,
+          submittedAt: d.submittedAt?.toDate?.()?.toISOString() ?? "MISSING",
+          wildcardUsed: d.wildcardUsed,
+          captainUsed: d.captainUsed,
+        };
+      });
+      return res.status(200).json({ fixture, predictionCount: predictions.length, predictions });
+    }
+
     if (req.query.debug === "true") {
       const fixturesSnap = await db.collection("fixtures").limit(100).get();
       const predictionsSnap = await db.collection("predictions").limit(100).get();
@@ -1115,6 +1394,770 @@ exports.manualCalculatePoints = functions.https.onRequest(async (req, res) => {
   }
 });
 
+exports.rollbackTokenMultipliers = functions.https.onRequest(async (req, res) => {
+  try {
+    const gameweek = Number(req.query.gameweek);
+    if (!Number.isInteger(gameweek) || gameweek < 1) {
+      return res.status(400).send("Invalid gameweek. Example: ?gameweek=1");
+    }
+
+    const predictionsSnap = await db.collection("predictions").get();
+    const usersRef = db.collection("users");
+
+    let userScoreDeltas = {};
+    let processedPredictions = 0;
+    let skippedNoMultipliers = 0;
+
+    for (const predictionDoc of predictionsSnap.docs) {
+      const prediction = predictionDoc.data();
+      const predGameweek = getPredictionGameweek(prediction);
+
+      if (predGameweek !== gameweek) continue;
+
+      const captainApplied = prediction.captainApplied === true;
+      const doubleDownApplied = prediction.doubleDownApplied === true;
+
+      // Only rollback predictions that had multipliers applied
+      if (!captainApplied && !doubleDownApplied) {
+        skippedNoMultipliers++;
+        continue;
+      }
+
+      const multiplier = (captainApplied ? 2 : 1) * (doubleDownApplied ? 2 : 1);
+      const currentPoints = Number(prediction.awardedPoints || 0);
+      const oldPoints = Math.floor(currentPoints / multiplier);
+      const delta = currentPoints - oldPoints;
+
+      if (prediction.userId && delta !== 0) {
+        userScoreDeltas[prediction.userId] = (userScoreDeltas[prediction.userId] || 0) - delta;
+      }
+
+      processedPredictions++;
+    }
+
+    // Apply score deltas to users
+    const batchSize = 450;
+    let batch = db.batch();
+    let opCount = 0;
+    const commitIfNeeded = async () => {
+      if (opCount >= batchSize) {
+        await batch.commit();
+        batch = db.batch();
+        opCount = 0;
+      }
+    };
+
+    for (const [userId, scoreDelta] of Object.entries(userScoreDeltas)) {
+      if (scoreDelta === 0) continue;
+
+      batch.update(usersRef.doc(userId), {
+        score: admin.firestore.FieldValue.increment(scoreDelta),
+      });
+
+      opCount++;
+      await commitIfNeeded();
+    }
+
+    if (opCount > 0) {
+      await batch.commit();
+    }
+
+    const usersAffected = Object.keys(userScoreDeltas).filter(uid => userScoreDeltas[uid] !== 0).length;
+
+    res.status(200).send(
+      `Rollback complete for GW${gameweek}. Processed: ${processedPredictions} predictions, rolled back multipliers from ${usersAffected} users, skipped ${skippedNoMultipliers} (no multipliers applied).`
+    );
+  } catch (e) {
+    console.error("rollbackTokenMultipliers error:", e);
+    res.status(500).send(e.message);
+  }
+});
+
+exports.calculateCorrectScores = functions.https.onRequest(async (req, res) => {
+  try {
+    const gameweek = Number(req.query.gameweek) || 1;
+
+    const predictionsSnap = await db.collection("predictions").get();
+    const usersSnap = await db.collection("users").get();
+
+    // Build current user scores
+    const currentUserScores = {};
+    usersSnap.docs.forEach(doc => {
+      currentUserScores[doc.id] = Number(doc.data().score || 0);
+    });
+
+    // Calculate correct scores (without multipliers)
+    const userCorrectScores = {};
+    let processedPredictions = 0;
+
+    predictionsSnap.docs.forEach(predDoc => {
+      const pred = predDoc.data();
+      const predGw = getPredictionGameweek(pred);
+
+      if (predGw !== gameweek || !pred.userId) return;
+
+      const awardedPoints = Number(pred.awardedPoints || 0);
+      const captainApplied = pred.captainApplied === true;
+      const doubleDownApplied = pred.doubleDownApplied === true;
+
+      // Calculate what it should have been without multipliers
+      let correctPoints = awardedPoints;
+      if (captainApplied && doubleDownApplied) {
+        correctPoints = Math.floor(awardedPoints / 4);
+      } else if (captainApplied || doubleDownApplied) {
+        correctPoints = Math.floor(awardedPoints / 2);
+      }
+
+      if (!userCorrectScores[pred.userId]) {
+        userCorrectScores[pred.userId] = 0;
+      }
+      userCorrectScores[pred.userId] += correctPoints;
+      processedPredictions++;
+    });
+
+    // Build final scores: current score - (points with multipliers) + (correct points)
+    const restorationList = [];
+    for (const [userId, correctGwPoints] of Object.entries(userCorrectScores)) {
+      const currentScore = currentUserScores[userId] || 0;
+      // We need to know how much was added with multipliers to subtract it
+      // This is tricky — let me calculate differently:
+      // Find all predictions for this user in GW1, sum their correct points
+      let userCurrentGwPoints = 0;
+      predictionsSnap.docs.forEach(predDoc => {
+        const pred = predDoc.data();
+        if (pred.userId === userId && getPredictionGameweek(pred) === gameweek) {
+          userCurrentGwPoints += Number(pred.awardedPoints || 0);
+        }
+      });
+
+      const delta = userCurrentGwPoints - correctGwPoints;
+      const priorScore = currentScore - delta;
+
+      restorationList.push({
+        userId,
+        currentScore,
+        correctGwPoints,
+        userCurrentGwPoints,
+        delta,
+        priorScore,
+      });
+    }
+
+    res.status(200).json({
+      gameweek,
+      processedPredictions,
+      usersAffected: restorationList.length,
+      restorationList,
+    });
+  } catch (e) {
+    console.error("calculateCorrectScores error:", e);
+    res.status(500).send(e.message);
+  }
+});
+
+exports.backupUserScores = functions.https.onRequest(async (req, res) => {
+  try {
+    const label = req.query.label || `backup_${Date.now()}`;
+
+    const usersSnap = await db.collection("users").get();
+    const scores = {};
+    usersSnap.forEach((doc) => {
+      scores[doc.id] = Number(doc.data().score || 0);
+    });
+
+    // Firestore doc has a 1MB limit; ~150 users of {id: number} is tiny, fits easily.
+    await db.collection("scoreBackups").doc(label).set({
+      label,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      userCount: Object.keys(scores).length,
+      scores,
+    });
+
+    return res.status(200).json({
+      message: `Backed up ${Object.keys(scores).length} user scores.`,
+      label,
+      restoreWith: `/restoreScoreBackup?label=${label}&commit=true`,
+    });
+  } catch (e) {
+    console.error("backupUserScores error:", e);
+    return res.status(500).send(e.message);
+  }
+});
+
+exports.restoreScoreBackup = functions.https.onRequest(async (req, res) => {
+  try {
+    const label = req.query.label;
+    const dryRun = req.query.commit !== "true";
+    if (!label) {
+      return res.status(400).send("Provide ?label=<backup label>. List with /listScoreBackups");
+    }
+
+    const backupDoc = await db.collection("scoreBackups").doc(label).get();
+    if (!backupDoc.exists) {
+      return res.status(404).send(`No backup found with label "${label}".`);
+    }
+
+    const scores = backupDoc.data().scores || {};
+    const usersRef = db.collection("users");
+
+    const usersSnap = await usersRef.get();
+    const changes = [];
+    usersSnap.forEach((doc) => {
+      if (!(doc.id in scores)) return;
+      const oldScore = Number(doc.data().score || 0);
+      const restored = Number(scores[doc.id]);
+      if (oldScore !== restored) {
+        changes.push({ userId: doc.id, currentScore: oldScore, restoreTo: restored });
+      }
+    });
+
+    if (dryRun) {
+      return res.status(200).json({
+        dryRun: true,
+        note: "No writes performed. Add &commit=true to apply.",
+        label,
+        usersToRestore: changes.length,
+        changes,
+      });
+    }
+
+    const batchSize = 450;
+    let batch = db.batch();
+    let opCount = 0;
+    const commitIfNeeded = async () => {
+      if (opCount >= batchSize) {
+        await batch.commit();
+        batch = db.batch();
+        opCount = 0;
+      }
+    };
+
+    for (const c of changes) {
+      batch.update(usersRef.doc(c.userId), { score: c.restoreTo });
+      opCount++;
+      await commitIfNeeded();
+    }
+    if (opCount > 0) await batch.commit();
+
+    return res.status(200).json({
+      dryRun: false,
+      label,
+      usersRestored: changes.length,
+    });
+  } catch (e) {
+    console.error("restoreScoreBackup error:", e);
+    return res.status(500).send(e.message);
+  }
+});
+
+exports.fixUserTokenDocs = functions.https.onRequest(async (req, res) => {
+  try {
+    const userId = req.query.userId;
+    const dryRun = req.query.commit !== "true";
+    if (!userId) {
+      return res.status(400).send("Provide ?userId=<id>. Add &commit=true to apply.");
+    }
+
+    // Current fixtures only — never touch stale predictions.
+    const fixturesSnap = await db.collection("fixtures").get();
+    const validFixtureIds = new Set(fixturesSnap.docs.map((d) => d.id));
+
+    // This user's double-down gameweek (if any).
+    const userDoc = await db.collection("users").doc(userId).get();
+    const ddGw = userDoc.exists
+      ? Number(userDoc.data().doubleDownUsedGameweek ?? -1)
+      : -1;
+
+    const predsSnap = await db.collection("predictions").where("userId", "==", userId).get();
+
+    const batch = db.batch();
+    const changes = [];
+
+    predsSnap.forEach((doc) => {
+      const p = doc.data();
+      if (!p.fixtureId || !validFixtureIds.has(p.fixtureId)) return;
+
+      const awarded = Number(p.awardedPoints || 0);
+      if (awarded <= 0) return; // only predictions that earned points can be doubled
+
+      const captainApplied = p.captainApplied === true;
+      const doubleDownApplied = p.doubleDownApplied === true;
+      const currentMult = (captainApplied ? 2 : 1) * (doubleDownApplied ? 2 : 1);
+
+      // What SHOULD be applied based on the token flags.
+      const predGw = getPredictionGameweek(p);
+      const captainShould = p.captainUsed === true;
+      const ddShould = ddGw >= 0 && predGw === ddGw;
+      const desiredMult = (captainShould ? 2 : 1) * (ddShould ? 2 : 1);
+
+      if (desiredMult === currentMult) return; // already correct
+
+      const base = Math.round(awarded / currentMult); // strip current multiplier
+      const newAwarded = base * desiredMult;
+
+      // Rebuild scoring reason from the base outcome + applied tokens.
+      const baseReason = base === 3 ? "exact_score" : base === 1 ? "correct_outcome" : "wrong_prediction";
+      const newReason = baseReason
+        + (captainShould ? "_captain" : "")
+        + (ddShould ? "_double_down" : "");
+
+      changes.push({
+        predId: doc.id,
+        fixtureId: p.fixtureId,
+        gameweek: predGw,
+        oldAwarded: awarded,
+        newAwarded,
+        captainApplied: captainShould,
+        doubleDownApplied: ddShould,
+        newReason,
+      });
+
+      if (!dryRun) {
+        batch.update(doc.ref, {
+          awardedPoints: newAwarded,
+          captainApplied: captainShould,
+          doubleDownApplied: ddShould,
+          scoringReason: newReason,
+        });
+      }
+    });
+
+    if (!dryRun && changes.length > 0) {
+      await batch.commit();
+    }
+
+    const docDelta = changes.reduce((s, c) => s + (c.newAwarded - c.oldAwarded), 0);
+
+    return res.status(200).json({
+      dryRun,
+      userId,
+      note: dryRun
+        ? "No writes performed. Add &commit=true to apply. User TOTAL score is never touched."
+        : "Prediction docs updated. User total score was NOT modified.",
+      docsChanged: changes.length,
+      predictionDocPointsDelta: docDelta,
+      changes,
+    });
+  } catch (e) {
+    console.error("fixUserTokenDocs error:", e);
+    return res.status(500).send(e.message);
+  }
+});
+
+exports.debugTokens = functions.https.onRequest(async (req, res) => {
+  try {
+    const fixturesSnap = await db.collection("fixtures").get();
+    const validFixtureIds = new Set(fixturesSnap.docs.map((d) => d.id));
+
+    const usersSnap = await db.collection("users").get();
+    const ddByUser = {}; // userId -> doubleDownUsedGameweek
+    usersSnap.forEach((d) => {
+      const v = d.data().doubleDownUsedGameweek;
+      if (v !== undefined && v !== null) ddByUser[d.id] = Number(v);
+    });
+
+    const predsSnap = await db.collection("predictions").get();
+    const captainRows = [];
+    const ddRows = [];
+
+    predsSnap.forEach((doc) => {
+      const p = doc.data();
+      if (!p.fixtureId || !validFixtureIds.has(p.fixtureId)) return; // current fixtures only
+
+      if (p.captainUsed === true) {
+        captainRows.push({
+          predId: doc.id,
+          userId: p.userId,
+          fixtureId: p.fixtureId,
+          gameweek: getPredictionGameweek(p),
+          awardedPoints: Number(p.awardedPoints || 0),
+          captainUsed: p.captainUsed === true,
+          captainApplied: p.captainApplied === true,
+          scoredPoints: p.scoredPoints === true,
+          scoringReason: p.scoringReason,
+        });
+      }
+
+      const ddGw = ddByUser[p.userId];
+      if (ddGw !== undefined && getPredictionGameweek(p) === ddGw) {
+        ddRows.push({
+          predId: doc.id,
+          userId: p.userId,
+          fixtureId: p.fixtureId,
+          gameweek: getPredictionGameweek(p),
+          doubleDownGw: ddGw,
+          awardedPoints: Number(p.awardedPoints || 0),
+          doubleDownApplied: p.doubleDownApplied === true,
+          scoredPoints: p.scoredPoints === true,
+          scoringReason: p.scoringReason,
+        });
+      }
+    });
+
+    return res.status(200).json({
+      captainCount: captainRows.length,
+      doubleDownPredCount: ddRows.length,
+      usersWithDoubleDown: Object.keys(ddByUser).length,
+      ddByUser,
+      captainPredictions: captainRows,
+      doubleDownPredictions: ddRows,
+    });
+  } catch (e) {
+    console.error("debugTokens error:", e);
+    return res.status(500).send(e.message);
+  }
+});
+
+exports.listScoreBackups = functions.https.onRequest(async (req, res) => {
+  try {
+    const snap = await db.collection("scoreBackups").orderBy("createdAt", "desc").get();
+    const backups = snap.docs.map((d) => ({
+      label: d.id,
+      userCount: d.data().userCount,
+      createdAt: d.data().createdAt?.toDate?.()?.toISOString?.() ?? null,
+    }));
+    return res.status(200).json({ count: backups.length, backups });
+  } catch (e) {
+    console.error("listScoreBackups error:", e);
+    return res.status(500).send(e.message);
+  }
+});
+
+exports.rebuildScoresCurrentFixtures = functions.https.onRequest(async (req, res) => {
+  try {
+    const dryRun = req.query.commit !== "true";
+
+    // 1. Load every fixture that currently exists. Predictions pointing at a
+    //    fixture that no longer exists (old Premier League games) must NOT count.
+    const fixturesSnap = await db.collection("fixtures").get();
+    const validFixtureIds = new Set(fixturesSnap.docs.map((d) => d.id));
+
+    // 2. Sum awardedPoints per user, but ONLY for predictions on a current fixture.
+    //    awardedPoints already includes legitimate captain / double-down multipliers.
+    const predictionsSnap = await db.collection("predictions").get();
+    const usersRef = db.collection("users");
+
+    const totalsByUser = {};
+    let countedPredictions = 0;
+    let skippedStaleFixture = 0;
+    let skippedNoUserId = 0;
+
+    predictionsSnap.forEach((doc) => {
+      const p = doc.data();
+      if (!p.userId) { skippedNoUserId++; return; }
+      if (!p.fixtureId || !validFixtureIds.has(p.fixtureId)) {
+        skippedStaleFixture++;
+        return;
+      }
+      const awarded = Number(p.awardedPoints || 0);
+      totalsByUser[p.userId] = (totalsByUser[p.userId] || 0) + awarded;
+      countedPredictions++;
+    });
+
+    // 3. Build the change set (only users whose score is actually wrong).
+    const usersSnap = await usersRef.get();
+    const changes = [];
+    usersSnap.forEach((doc) => {
+      const oldScore = Number(doc.data().score || 0);
+      const newScore = totalsByUser[doc.id] || 0;
+      if (oldScore !== newScore) {
+        changes.push({ userId: doc.id, oldScore, newScore, diff: newScore - oldScore });
+      }
+    });
+
+    if (dryRun) {
+      return res.status(200).json({
+        dryRun: true,
+        note: "No writes performed. Add &commit=true to apply.",
+        validFixtures: validFixtureIds.size,
+        countedPredictions,
+        skippedStaleFixture,
+        skippedNoUserId,
+        usersToChange: changes.length,
+        changes: changes.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)),
+      });
+    }
+
+    // 4. Apply: absolute set (not increment) so drift can never accumulate again.
+    const batchSize = 450;
+    let batch = db.batch();
+    let opCount = 0;
+    const commitIfNeeded = async () => {
+      if (opCount >= batchSize) {
+        await batch.commit();
+        batch = db.batch();
+        opCount = 0;
+      }
+    };
+
+    for (const c of changes) {
+      batch.update(usersRef.doc(c.userId), { score: c.newScore });
+      opCount++;
+      await commitIfNeeded();
+    }
+    if (opCount > 0) await batch.commit();
+
+    return res.status(200).json({
+      dryRun: false,
+      validFixtures: validFixtureIds.size,
+      countedPredictions,
+      skippedStaleFixture,
+      usersChanged: changes.length,
+    });
+  } catch (e) {
+    console.error("rebuildScoresCurrentFixtures error:", e);
+    return res.status(500).send(e.message);
+  }
+});
+
+exports.debugUserPredictions = functions.https.onRequest(async (req, res) => {
+  try {
+    // ?gameweekMismatch=true → find predictions whose stored gameweek no longer
+    // matches their fixture's current gameweek (fallout from matchday reassignment).
+    // Add &commit=true to rewrite prediction.gameweek to the fixture's value.
+    if (req.query.gameweekMismatch === "true") {
+      const commit = req.query.commit === "true";
+      const fixturesSnap = await db.collection("fixtures").get();
+      const fixtureGw = {};
+      fixturesSnap.docs.forEach((d) => { fixtureGw[d.id] = getFixtureGameweek(d.data()); });
+
+      const predsSnap = await db.collection("predictions").get();
+      const mismatches = [];
+      const byBucket = {};
+      predsSnap.forEach((doc) => {
+        const p = doc.data();
+        if (!p.fixtureId || !(p.fixtureId in fixtureGw)) return; // current fixtures only
+        const fGw = fixtureGw[p.fixtureId];
+        const pGw = getPredictionGameweek(p);
+        if (fGw != null && pGw !== fGw) {
+          mismatches.push({ predId: doc.id, ref: doc.ref, fixtureId: p.fixtureId, predictionGw: pGw, fixtureGw: fGw });
+          const k = `pred_gw${pGw}_should_be_gw${fGw}`;
+          byBucket[k] = (byBucket[k] || 0) + 1;
+        }
+      });
+
+      if (commit && mismatches.length) {
+        let batch = db.batch(); let n = 0;
+        for (const m of mismatches) {
+          batch.update(m.ref, { gameweek: m.fixtureGw });
+          if (++n % 450 === 0) { await batch.commit(); batch = db.batch(); }
+        }
+        if (n % 450 !== 0) await batch.commit();
+      }
+
+      return res.status(200).json({
+        dryRun: !commit,
+        note: commit ? "prediction.gameweek rewritten to match fixture." : "No writes. Add &commit=true to fix.",
+        mismatchCount: mismatches.length,
+        breakdown: byBucket,
+        sample: mismatches.slice(0, 40).map(({ ref, ...m }) => m),
+      });
+    }
+
+    // ?scanTokens=true → global audit of every captain / double-down prediction
+    // on a CURRENT fixture, flagging any where the multiplier wasn't applied.
+    if (req.query.scanTokens === "true") {
+      const fixturesSnap = await db.collection("fixtures").get();
+      const validFixtureIds = new Set(fixturesSnap.docs.map((d) => d.id));
+
+      const usersSnap = await db.collection("users").get();
+      const ddByUser = {};
+      usersSnap.forEach((d) => {
+        const v = d.data().doubleDownUsedGameweek;
+        if (v !== undefined && v !== null) ddByUser[d.id] = Number(v);
+      });
+
+      const predsSnap = await db.collection("predictions").get();
+      const captainRows = [];
+      const ddRows = [];
+      const problems = [];
+
+      predsSnap.forEach((doc) => {
+        const p = doc.data();
+        if (!p.fixtureId || !validFixtureIds.has(p.fixtureId)) return;
+        const awarded = Number(p.awardedPoints || 0);
+        const scored = p.scoredPoints === true;
+        const predGw = getPredictionGameweek(p);
+
+        if (p.captainUsed === true) {
+          const applied = p.captainApplied === true;
+          const problem = scored && awarded > 0 && !applied;
+          const row = { predId: doc.id, userId: p.userId, fixtureId: p.fixtureId, gameweek: predGw, awardedPoints: awarded, captainApplied: applied, scored, reason: p.scoringReason };
+          captainRows.push(row);
+          if (problem) problems.push({ kind: "captain_not_applied", ...row });
+        }
+
+        const ddGw = ddByUser[p.userId];
+        if (ddGw !== undefined && ddGw >= 0 && predGw === ddGw) {
+          const applied = p.doubleDownApplied === true;
+          const problem = scored && awarded > 0 && !applied;
+          const row = { predId: doc.id, userId: p.userId, fixtureId: p.fixtureId, gameweek: predGw, ddGw, awardedPoints: awarded, doubleDownApplied: applied, scored, reason: p.scoringReason };
+          ddRows.push(row);
+          if (problem) problems.push({ kind: "double_down_not_applied", ...row });
+        }
+      });
+
+      return res.status(200).json({
+        captainCount: captainRows.length,
+        doubleDownPredCount: ddRows.length,
+        usersWithDoubleDown: Object.keys(ddByUser).length,
+        ddByUser,
+        problemCount: problems.length,
+        problems,
+        captainPredictions: captainRows,
+        doubleDownPredictions: ddRows,
+      });
+    }
+
+    const userId = req.query.userId;
+    if (!userId) {
+      return res.status(400).send("Provide ?userId=<id>");
+    }
+
+    // ?resetTokens=true → give this user all 3 tokens back (for demo/recording).
+    // Clears doubleDownUsedGameweek so the Double Down card reads "TAP TO USE".
+    // Does NOT touch prediction docs, so existing scores are unaffected.
+    if (req.query.resetTokens === "true") {
+      const uDoc = await db.collection("users").doc(userId).get();
+      if (!uDoc.exists) return res.status(404).json({ error: "user not found" });
+      await uDoc.ref.update({
+        wildcardAvailable: true,
+        captainAvailable: true,
+        doubleDownAvailable: true,
+        doubleDownUsedGameweek: admin.firestore.FieldValue.delete(),
+      });
+      return res.status(200).json({ success: true, resetTokensFor: userId });
+    }
+
+    // ?pushTitle=&pushBody= → send a single push to this user's device (test/video).
+    if (req.query.pushTitle && req.query.pushBody) {
+      const uDoc = await db.collection("users").doc(userId).get();
+      if (!uDoc.exists) return res.status(404).json({ error: "user not found" });
+      const token = uDoc.data().fcmToken;
+      if (!token) return res.status(400).json({ error: "user has no fcmToken (not logged in on a device?)" });
+      await admin.messaging().send({
+        token,
+        notification: { title: req.query.pushTitle, body: req.query.pushBody },
+        data: { type: "result" },
+        android: { priority: "high", notification: { channelId: "big6ix_results" } },
+        apns: { payload: { aps: { sound: "default" } } },
+      });
+      return res.status(200).json({ success: true, sentTo: userId });
+    }
+
+    const userDoc = await db.collection("users").doc(userId).get();
+    const currentScore = userDoc.exists ? Number(userDoc.data().score || 0) : null;
+
+    const predsSnap = await db.collection("predictions").where("userId", "==", userId).get();
+
+    const rows = [];
+    let sumAwarded = 0;
+    let sumBase = 0;
+
+    for (const doc of predsSnap.docs) {
+      const p = doc.data();
+      const fixtureId = p.fixtureId;
+      let fixtureScore = null;
+      if (fixtureId) {
+        const fx = await db.collection("fixtures").doc(fixtureId).get();
+        if (fx.exists) {
+          const f = fx.data();
+          fixtureScore = `${getFixtureHomeGoals(f)}-${getFixtureAwayGoals(f)}`;
+        }
+      }
+
+      const awarded = Number(p.awardedPoints || 0);
+      const captainApplied = p.captainApplied === true;
+      const doubleDownApplied = p.doubleDownApplied === true;
+      const mult = (captainApplied ? 2 : 1) * (doubleDownApplied ? 2 : 1);
+      const base = mult > 1 ? Math.floor(awarded / mult) : awarded;
+
+      sumAwarded += awarded;
+      sumBase += base;
+
+      rows.push({
+        predId: doc.id,
+        gameweek: getPredictionGameweek(p),
+        fixtureId,
+        predicted: `${getPredictionHomeGoals(p)}-${getPredictionAwayGoals(p)}`,
+        actual: fixtureScore,
+        awardedPoints: awarded,
+        basePoints: base,
+        captainUsed: p.captainUsed === true,
+        captainApplied,
+        doubleDownApplied,
+        wildcardUsed: p.wildcardUsed === true,
+        ignoredDuplicate: p.ignoredDuplicate === true,
+        scoringReason: p.scoringReason,
+      });
+    }
+
+    rows.sort((a, b) => (a.gameweek || 0) - (b.gameweek || 0));
+
+    res.status(200).json({
+      userId,
+      currentScore,
+      totalPredictions: rows.length,
+      sumAwardedPoints: sumAwarded,
+      sumBasePoints: sumBase,
+      drift: currentScore !== null ? currentScore - sumAwarded : null,
+      predictions: rows,
+    });
+  } catch (e) {
+    console.error("debugUserPredictions error:", e);
+    res.status(500).send(e.message);
+  }
+});
+
+exports.restoreUserScores = functions.https.onRequest(async (req, res) => {
+  try {
+    // POST body: { scores: [{ userId: "uid1", priorScore: 42 }, ...] }
+    const { scores } = req.body;
+
+    if (!Array.isArray(scores) || scores.length === 0) {
+      return res.status(400).send("POST body must contain: { scores: [{ userId, priorScore }, ...] }");
+    }
+
+    const usersRef = db.collection("users");
+    const batchSize = 450;
+    let batch = db.batch();
+    let opCount = 0;
+    let updated = 0;
+
+    const commitIfNeeded = async () => {
+      if (opCount >= batchSize) {
+        await batch.commit();
+        batch = db.batch();
+        opCount = 0;
+      }
+    };
+
+    for (const { userId, priorScore } of scores) {
+      if (!userId || priorScore === undefined || priorScore === null) {
+        console.warn(`Skipped invalid entry: userId=${userId}, priorScore=${priorScore}`);
+        continue;
+      }
+
+      batch.update(usersRef.doc(userId), {
+        score: Number(priorScore),
+      });
+
+      opCount++;
+      updated++;
+      await commitIfNeeded();
+    }
+
+    if (opCount > 0) {
+      await batch.commit();
+    }
+
+    res.status(200).send(`Restored scores for ${updated} users.`);
+  } catch (e) {
+    console.error("restoreUserScores error:", e);
+    res.status(500).send(e.message);
+  }
+});
+
 exports.debugGameweeks = functions.https.onRequest(async (req, res) => {
   try {
     const fixturesSnap = await db.collection("fixtures").limit(50).get();
@@ -1277,14 +2320,7 @@ exports.rebuildUserScoresFromPredictions = functions.https.onRequest(async (req,
 // Optional: ?force=true to re-archive even if season already archived
 exports.resetSeason = functions.https.onRequest(async (req, res) => {
   try {
-    const authHeader = req.headers.authorization || "";
-    const idToken = authHeader.replace("Bearer ", "");
-    if (!idToken) return res.status(401).json({ error: "Missing auth token" });
-
-    const decoded = await admin.auth().verifyIdToken(idToken);
-    if (decoded.email !== "ugurdenli30@gmail.com") {
-      return res.status(403).json({ error: "Admin only" });
-    }
+    await verifyAdmin(req);
 
     const force = req.query.force === "true";
     const year = new Date().getFullYear().toString();
@@ -1309,17 +2345,39 @@ exports.resetSeason = functions.https.onRequest(async (req, res) => {
       }
     };
 
-    // Archive current scores
+    // Build sorted list for top-players snapshot
+    const sortedUsers = usersSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+    const topPlayers = sortedUsers.slice(0, 3).map(u => ({
+      fullName:        u.fullName          || "",
+      score:           u.score             || 0,
+      profileImageURL: u.profileImageURL   || u.profileImageUrl || "",
+    }));
+
+    // Write the parent season doc so SeasonArchiveView (iOS + Android) can display it.
+    // • year stored as String so both platforms can read it as a string field.
+    // • topPlayers is the array field both iOS and Android read.
+    await seasonRef.set({
+      season:      `Season ${year}`,   // Android reads "season" first
+      name:        `Season ${year}`,   // iOS reads "name"
+      year:        year,               // kept as String (new Date().getFullYear().toString())
+      topPlayers,
+      archivedAt:  admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    // Archive current scores into subcollection
     for (const userDoc of usersSnap.docs) {
       const data = userDoc.data();
       const archiveRef = seasonRef.collection("userScores").doc(userDoc.id);
       batch.set(archiveRef, {
-        userId: userDoc.id,
-        fullName: data.fullName || "",
-        score: data.score || 0,
-        weeklyScore: data.weeklyScore || 0,
+        userId:       userDoc.id,
+        fullName:     data.fullName     || "",
+        score:        data.score        || 0,
+        weeklyScore:  data.weeklyScore  || 0,
         monthlyScore: data.monthlyScore || 0,
-        archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        archivedAt:   admin.firestore.FieldValue.serverTimestamp(),
       });
       opCount++;
       archived++;
@@ -1342,11 +2400,248 @@ exports.resetSeason = functions.https.onRequest(async (req, res) => {
 
     if (opCount > 0) await batch.commit();
 
+    // ── Enrich userScores with per-user prediction stats ──────────────────────
+    // Query all scored predictions once and group by userId — one big read is
+    // faster than N individual user queries.
+    try {
+      const predsSnap = await db.collection("predictions")
+          .where("awardedPoints", ">=", 0).get();
+
+      const statMap = {};
+      for (const doc of predsSnap.docs) {
+        const d   = doc.data();
+        const uid = d.userId;
+        if (!uid) continue;
+        if (!statMap[uid]) statMap[uid] = { correctScores: 0, gamesPlayed: 0, gwPts: {} };
+        statMap[uid].gamesPlayed++;
+        if (d.awardedPoints === 3) statMap[uid].correctScores++;
+        const gw = d.gameweek || 0;
+        if (gw > 0) statMap[uid].gwPts[gw] = (statMap[uid].gwPts[gw] || 0) + d.awardedPoints;
+      }
+
+      let statBatch  = db.batch();
+      let statOps    = 0;
+      for (const [uid, stats] of Object.entries(statMap)) {
+        const bestGwScore = Object.values(stats.gwPts).length
+            ? Math.max(...Object.values(stats.gwPts)) : 0;
+        statBatch.update(seasonRef.collection("userScores").doc(uid), {
+          correctScores: stats.correctScores,
+          gamesPlayed:   stats.gamesPlayed,
+          bestGwScore,
+        });
+        statOps++;
+        if (statOps >= 450) {
+          await statBatch.commit();
+          statBatch = db.batch();
+          statOps   = 0;
+        }
+      }
+      if (statOps > 0) await statBatch.commit();
+      console.log(`Stats enriched for ${Object.keys(statMap).length} users.`);
+    } catch (statErr) {
+      // Non-fatal — leaderboard still works, just without accuracy stats
+      console.warn("Stats enrichment skipped:", statErr.message);
+    }
+
+    // ── Archive per-user predictions into seasons/{year}/userPredictions/{uid} ─
+    // Each doc is a self-contained snapshot: prediction + actual scores so the
+    // app never needs to cross-reference the live fixtures collection.
+    try {
+      const allPredsSnap = await db.collection("predictions")
+          .where("awardedPoints", ">=", 0).get();
+
+      // Group by userId, collect unique fixtureIds
+      const predsByUser = {};
+      const fixtureIdSet = new Set();
+      for (const doc of allPredsSnap.docs) {
+        const d = doc.data();
+        if (!d.userId) continue;
+        if (!predsByUser[d.userId]) predsByUser[d.userId] = [];
+        predsByUser[d.userId].push(d);
+        if (d.fixtureId) fixtureIdSet.add(d.fixtureId);
+      }
+
+      // Fetch actual scores from fixtures in chunks of 30
+      const fixtureMap = {};
+      const fixtureIdArr = Array.from(fixtureIdSet);
+      for (let i = 0; i < fixtureIdArr.length; i += 30) {
+        const chunk = fixtureIdArr.slice(i, i + 30);
+        const fSnap = await db.collection("fixtures")
+            .where(admin.firestore.FieldPath.documentId(), "in", chunk).get();
+        for (const fDoc of fSnap.docs) fixtureMap[fDoc.id] = fDoc.data();
+      }
+
+      // Build a userId→fullName lookup from the already-fetched sortedUsers list
+      const nameMap = {};
+      for (const u of sortedUsers) nameMap[u.id] = u.fullName || "";
+
+      let predBatch = db.batch();
+      let predOps   = 0;
+
+      for (const [uid, preds] of Object.entries(predsByUser)) {
+        const entries = preds.map(p => {
+          const fx = fixtureMap[p.fixtureId] || {};
+          return {
+            fixtureId:     p.fixtureId    || "",
+            homeTeam:      p.homeTeam     || fx.homeTeam  || "",
+            awayTeam:      p.awayTeam     || fx.awayTeam  || "",
+            predictedHome: p.homeTeamGoals ?? -1,
+            predictedAway: p.awayTeamGoals ?? -1,
+            actualHome:    fx.homeTeamGoals ?? -1,
+            actualAway:    fx.awayTeamGoals ?? -1,
+            awardedPoints: p.awardedPoints  ?? 0,
+            gameweek:      p.gameweek || fx.gameweek || 0,
+          };
+        }).sort((a, b) => a.gameweek - b.gameweek || a.homeTeam.localeCompare(b.homeTeam));
+
+        predBatch.set(seasonRef.collection("userPredictions").doc(uid), {
+          userId:      uid,
+          fullName:    nameMap[uid] || "",
+          totalScore:  sortedUsers.find(u => u.id === uid)?.score || 0,
+          predictions: entries,
+          archivedAt:  admin.firestore.FieldValue.serverTimestamp(),
+        });
+        predOps++;
+        if (predOps >= 450) {
+          await predBatch.commit();
+          predBatch = db.batch();
+          predOps   = 0;
+        }
+      }
+      if (predOps > 0) await predBatch.commit();
+      console.log(`Archived predictions for ${Object.keys(predsByUser).length} users.`);
+    } catch (predErr) {
+      console.warn("Prediction archiving skipped:", predErr.message);
+    }
+
     console.log(`Season ${year} reset: ${archived} users archived and reset.`);
     return res.status(200).json({ message: `Season ${year} archived and reset.`, usersReset: archived });
   } catch (e) {
     console.error("resetSeason error:", e);
     return res.status(500).json({ error: e.message });
+  }
+});
+
+// Backfill: archives predictions into seasons/{year}/userPredictions/{uid} for a
+// season that was reset before prediction-archiving was added. Safe to re-run.
+exports.backfillSeasonPredictions = functions
+  .runWith({ timeoutSeconds: 540, memory: "512MB" })
+  .https.onRequest(async (req, res) => {
+  try {
+    await verifyAdmin(req);
+    const yearParam  = req.query.year || new Date().getFullYear().toString();
+    const seasonRef  = db.collection("seasons").doc(yearParam);
+    const seasonSnap = await seasonRef.get();
+    if (!seasonSnap.exists) return res.status(404).json({ error: `seasons/${yearParam} not found` });
+
+    // Fetch all scored predictions
+    const allPredsSnap = await db.collection("predictions")
+        .where("awardedPoints", ">=", 0).get();
+
+    const predsByUser  = {};
+    const fixtureIdSet = new Set();
+    for (const doc of allPredsSnap.docs) {
+      const d = doc.data();
+      if (!d.userId) continue;
+      if (!predsByUser[d.userId]) predsByUser[d.userId] = [];
+      predsByUser[d.userId].push(d);
+      if (d.fixtureId) fixtureIdSet.add(d.fixtureId);
+    }
+
+    // Fetch fixture actual scores in chunks of 30
+    const fixtureMap   = {};
+    const fixtureIdArr = Array.from(fixtureIdSet);
+    for (let i = 0; i < fixtureIdArr.length; i += 30) {
+      const chunk = fixtureIdArr.slice(i, i + 30);
+      const fSnap = await db.collection("fixtures")
+          .where(admin.firestore.FieldPath.documentId(), "in", chunk).get();
+      for (const fDoc of fSnap.docs) fixtureMap[fDoc.id] = fDoc.data();
+    }
+
+    // Fetch user names from the existing userScores subcollection
+    const scoresSnap = await seasonRef.collection("userScores").get();
+    const nameMap    = {};
+    const scoreMap   = {};
+    for (const doc of scoresSnap.docs) {
+      nameMap[doc.id]  = doc.data().fullName  || "";
+      scoreMap[doc.id] = doc.data().score     || 0;
+    }
+
+    let predBatch = db.batch();
+    let predOps   = 0;
+
+    for (const [uid, preds] of Object.entries(predsByUser)) {
+      const entries = preds.map(p => {
+        const fx = fixtureMap[p.fixtureId] || {};
+        return {
+          fixtureId:     p.fixtureId    || "",
+          homeTeam:      p.homeTeam     || fx.homeTeam  || "",
+          awayTeam:      p.awayTeam     || fx.awayTeam  || "",
+          predictedHome: p.homeTeamGoals ?? -1,
+          predictedAway: p.awayTeamGoals ?? -1,
+          actualHome:    fx.homeTeamGoals ?? -1,
+          actualAway:    fx.awayTeamGoals ?? -1,
+          awardedPoints: p.awardedPoints  ?? 0,
+          gameweek:      p.gameweek || fx.gameweek || 0,
+        };
+      }).sort((a, b) => a.gameweek - b.gameweek || a.homeTeam.localeCompare(b.homeTeam));
+
+      predBatch.set(seasonRef.collection("userPredictions").doc(uid), {
+        userId:      uid,
+        fullName:    nameMap[uid]  || "",
+        totalScore:  scoreMap[uid] || 0,
+        predictions: entries,
+        archivedAt:  admin.firestore.FieldValue.serverTimestamp(),
+      });
+      predOps++;
+      if (predOps >= 450) {
+        await predBatch.commit();
+        predBatch = db.batch();
+        predOps   = 0;
+      }
+    }
+    if (predOps > 0) await predBatch.commit();
+
+    return res.status(200).json({
+      ok: true, year: yearParam,
+      users: Object.keys(predsByUser).length,
+      fixtures: Object.keys(fixtureMap).length,
+    });
+  } catch (e) {
+    console.error("backfillSeasonPredictions error:", e);
+    return res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// One-time patch: fixes the seasons/{docId} parent document to use correct field types.
+// Converts year Int→String, renames topPlayers[].name→fullName, adds "season" label.
+// Safe to call multiple times. Delete this function after use.
+exports.patchSeasonDoc = functions.https.onRequest(async (req, res) => {
+  try {
+    await verifyAdmin(req);
+    const docId = req.query.doc || "2026";
+    const ref   = db.collection("seasons").doc(docId);
+    const snap  = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: `seasons/${docId} not found` });
+
+    const d = snap.data();
+    const fixedPlayers = (d.topPlayers || []).map(p => ({
+      fullName:        p.fullName        || p.name || "",
+      score:           p.score           || 0,
+      profileImageURL: p.profileImageURL || p.profileImageUrl || "",
+    }));
+
+    await ref.update({
+      year:       docId,                               // String, not Int
+      season:     d.season || d.name || `Season ${docId}`,  // Android reads "season"
+      name:       d.name   || `Season ${docId}`,            // iOS reads "name"
+      topPlayers: fixedPlayers,
+    });
+
+    return res.status(200).json({ ok: true, doc: docId, players: fixedPlayers.length });
+  } catch (e) {
+    console.error("patchSeasonDoc error:", e);
+    return res.status(e.status || 500).json({ error: e.message });
   }
 });
 
@@ -1479,8 +2774,14 @@ const WC_GW_OFFSET      = 0; // GW 1, 2, 3 ...
 // Top 8 nations by FIFA ranking (April 2026) — edit to adjust.
 const WC_FEATURED_NATIONS = new Set([
   "France", "Spain", "Argentina", "England",
-  "Portugal", "Brazil", "Netherlands", "Morocco",
+  "Portugal", "Brazil",
 ]);
+
+// Hard cap: never surface more than 6 fixtures in a single gameweek. With 6
+// featured nations a group round yields at most 6 games anyway, but this rule
+// guarantees it even if the API ever returns extras (e.g. a featured-nation
+// replay). When a gameweek is over the cap, the earliest kickoffs are kept.
+const WC_MAX_FIXTURES_PER_GW = 6;
 
 const doSyncWorldCup = async (preview = false) => {
   const apiKey = process.env.FOOTBALLDATA_KEY;
@@ -1515,13 +2816,41 @@ const doSyncWorldCup = async (preview = false) => {
 
   console.log(`WC 2026: ${data.matches?.length} total → ${matches.length} featured-nation matches`);
 
-  // Assign gameweek: every 6 matches = next GW (101, 102, ...)
-  const assigned = matches.map((match, i) => ({
-    match,
-    gameweek: WC_GW_OFFSET + Math.floor(i / WC_MATCHES_PER_GW) + 1,
-  }));
+  // Assign gameweek by competition stage + matchday so GW1 = all Round 1 group
+  // games, GW2 = Round 2, GW3 = Round 3, then GW4–8 for knockout stages.
+  const wcGameweek = (match) => {
+    if (match.stage === "GROUP_STAGE") return match.matchday ?? null;
+    // football-data.org names the knockout rounds LAST_32 / LAST_16 (not
+    // ROUND_OF_32 / ROUND_OF_16). Map both spellings so a future API change
+    // can't silently drop the knockout fixtures again.
+    const stageMap = {
+      LAST_32: 4, ROUND_OF_32: 4,
+      LAST_16: 5, ROUND_OF_16: 5,
+      QUARTER_FINALS: 6, SEMI_FINALS: 7, THIRD_PLACE: 8, FINAL: 8,
+    };
+    return stageMap[match.stage] ?? null;
+  };
 
-  console.log(`WC 2026: ${matches.length} matches → ${Math.ceil(matches.length / WC_MATCHES_PER_GW)} gameweeks`);
+  const assignedRaw = matches
+    .map(match => ({ match, gameweek: wcGameweek(match) }))
+    .filter(({ gameweek }) => gameweek != null);
+
+  // Enforce the per-gameweek cap: within each gameweek keep at most
+  // WC_MAX_FIXTURES_PER_GW games, preferring the earliest kickoffs.
+  const byGwForCap = {};
+  for (const item of assignedRaw) {
+    (byGwForCap[item.gameweek] ||= []).push(item);
+  }
+  const assigned = [];
+  for (const gw of Object.keys(byGwForCap)) {
+    const kept = byGwForCap[gw]
+      .sort((a, b) => new Date(a.match.utcDate) - new Date(b.match.utcDate))
+      .slice(0, WC_MAX_FIXTURES_PER_GW);
+    assigned.push(...kept);
+  }
+
+  const cappedOut = assignedRaw.length - assigned.length;
+  console.log(`WC 2026: ${matches.length} featured → ${assigned.length} assignable across ${new Set(assigned.map(a => a.gameweek)).size} gameweeks (capped out ${cappedOut} over the ${WC_MAX_FIXTURES_PER_GW}/GW limit)`);
 
   // ── Preview mode ───────────────────────────────────────────────────────────
   if (preview) {
@@ -1589,6 +2918,36 @@ exports.manualSyncWorldCup = functions
   .runWith({ secrets: ["FOOTBALLDATA_KEY"], timeoutSeconds: 120 })
   .https.onRequest(async (req, res) => {
     try {
+      // ?debugStages=true → inspect raw API: what stages exist, and whether the
+      // knockout matches have real team names yet or are still TBD/placeholders.
+      if (req.query.debugStages === "true") {
+        const apiKey = process.env.FOOTBALLDATA_KEY;
+        const apiRes = await fetch(
+          "https://api.football-data.org/v4/competitions/WC/matches?season=2026",
+          { headers: { "X-Auth-Token": apiKey } }
+        );
+        const data = await apiRes.json();
+        const all = data.matches || [];
+        const byStage = {};
+        for (const m of all) {
+          const st = m.stage || "UNKNOWN";
+          if (!byStage[st]) byStage[st] = { total: 0, withNamedTeams: 0, sample: [] };
+          byStage[st].total++;
+          const named = !!(m.homeTeam?.name && m.awayTeam?.name);
+          if (named) byStage[st].withNamedTeams++;
+          if (byStage[st].sample.length < 4) {
+            byStage[st].sample.push({
+              home: m.homeTeam?.name ?? null,
+              away: m.awayTeam?.name ?? null,
+              matchday: m.matchday ?? null,
+              status: m.status,
+              utcDate: m.utcDate,
+            });
+          }
+        }
+        return res.status(200).json({ totalMatches: all.length, byStage });
+      }
+
       const preview = req.query.preview === "true";
       const result  = await doSyncWorldCup(preview);
       res.status(200).json({ success: true, preview, ...result });
@@ -1598,12 +2957,16 @@ exports.manualSyncWorldCup = functions
     }
   });
 
-// Scheduled: runs every 6 hours automatically
+// Scheduled: runs every 10 minutes to pick up full-time results quickly.
+// One API call per run (fetches all WC2026 matches in a single request), so
+// 144 calls/day — well within football-data.org free tier.
+// When finished matches are detected, goals are written to Firestore and
+// calculatePoints is triggered automatically (see doSyncWorldCup).
 // NOTE: PL sync (doSyncFixtures) is disabled — WC 2026 only mode.
 // Re-enable doSyncFixtures() when the 2026/27 PL season begins.
 exports.syncFootballFixtures = functions
   .runWith({ secrets: ["FOOTBALLDATA_KEY"] })
-  .pubsub.schedule("every 6 hours").onRun(async () => {
+  .pubsub.schedule("every 10 minutes").onRun(async () => {
     await doSyncWorldCup();
   });
 
@@ -1815,3 +3178,321 @@ exports.sendDeadlineReminders = functions
     console.log(`sendDeadlineReminders: sent ${sent} notifications`);
     return null;
   });
+
+// ── Admin helper: verify caller is admin ─────────────────────────────────────
+const ADMIN_EMAILS = new Set([
+  "ugurdenli30@gmail.com",
+  "inveniumm@gmail.com",
+]);
+
+const verifyAdmin = async (req) => {
+  const authHeader = req.headers.authorization || "";
+  const idToken = authHeader.replace("Bearer ", "").trim();
+  if (!idToken) throw Object.assign(new Error("Missing auth token"), { status: 401 });
+  const decoded = await admin.auth().verifyIdToken(idToken);
+  if (!ADMIN_EMAILS.has(decoded.email)) {
+    // Also check Firestore isAdmin flag
+    const userDoc = await db.collection("users").doc(decoded.uid).get();
+    if (!userDoc.data()?.isAdmin) {
+      throw Object.assign(new Error("Admin only"), { status: 403 });
+    }
+  }
+  return decoded;
+};
+
+// ── Reset ALL user tokens ────────────────────────────────────────────────────
+exports.adminResetAllTokens = functions.https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      await verifyAdmin(req);
+      const usersSnap = await db.collection("users").get();
+      const tokenFields = { wildcardAvailable: true, captainAvailable: true, doubleDownAvailable: true };
+      let batch = db.batch();
+      let opCount = 0;
+      for (const doc of usersSnap.docs) {
+        batch.update(doc.ref, tokenFields);
+        opCount++;
+        if (opCount % 450 === 0) { await batch.commit(); batch = db.batch(); opCount = 0; }
+      }
+      if (opCount > 0) await batch.commit();
+      return res.status(200).json({ message: `Tokens reset for ${usersSnap.size} users.` });
+    } catch (e) {
+      return res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+});
+
+// ── Reset tokens for a single user (by fullName) ─────────────────────────────
+exports.adminResetUserTokens = functions.https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      await verifyAdmin(req);
+      const name = req.body?.name || req.query?.name;
+      if (!name) return res.status(400).json({ error: "Missing name" });
+      const snap = await db.collection("users").where("fullName", "==", name.trim()).limit(1).get();
+      if (snap.empty) return res.status(404).json({ error: `No user named "${name}" found` });
+      await snap.docs[0].ref.update({ wildcardAvailable: true, captainAvailable: true, doubleDownAvailable: true });
+      return res.status(200).json({ message: `Tokens reset for ${name}.` });
+    } catch (e) {
+      return res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+});
+
+// ── Points audit for a gameweek ───────────────────────────────────────────────
+exports.adminGetPointsAudit = functions.https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      await verifyAdmin(req);
+      const gw = Number(req.query.gameweek);
+      if (!Number.isInteger(gw)) return res.status(400).json({ error: "Invalid gameweek" });
+
+      const [predSnap, fixtureSnap] = await Promise.all([
+        db.collection("predictions").where("gameweek", "==", gw).get(),
+        db.collection("fixtures").where("gameweek", "==", gw).get(),
+      ]);
+
+      const fixtureMap = {};
+      fixtureSnap.forEach(doc => {
+        const d = doc.data();
+        fixtureMap[doc.id] = { homeTeam: d.homeTeam, awayTeam: d.awayTeam,
+          actualHome: d.homeTeamGoals ?? -1, actualAway: d.awayTeamGoals ?? -1 };
+      });
+
+      const userIds = [...new Set(predSnap.docs.map(d => d.data().userId).filter(Boolean))];
+      const userMap = {};
+      for (let i = 0; i < userIds.length; i += 30) {
+        const chunk = userIds.slice(i, i + 30);
+        const uSnap = await db.collection("users").where(admin.firestore.FieldPath.documentId(), "in", chunk).get();
+        uSnap.forEach(d => { userMap[d.id] = d.data().fullName || "Unknown"; });
+      }
+
+      const entries = [];
+      predSnap.forEach(doc => {
+        const p = doc.data();
+        const f = fixtureMap[p.fixtureId];
+        if (!f || f.actualHome < 0) return;
+        entries.push({
+          userName: userMap[p.userId] || "Unknown",
+          homeTeam: f.homeTeam, awayTeam: f.awayTeam,
+          predictedHome: p.homeTeamGoals ?? 0, predictedAway: p.awayTeamGoals ?? 0,
+          actualHome: f.actualHome, actualAway: f.actualAway,
+          points: p.awardedPoints ?? 0,
+          wildcardUsed: p.wildcardUsed ?? false, captainUsed: p.captainUsed ?? false,
+        });
+      });
+      entries.sort((a, b) => b.points - a.points || a.userName.localeCompare(b.userName));
+      return res.status(200).json({ entries });
+    } catch (e) {
+      return res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+});
+
+// ── GW Winner Notification ────────────────────────────────────────────────────
+exports.sendGwWinnerNotification = functions.https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const gw = Number(req.query.gameweek);
+      if (!Number.isInteger(gw)) return res.status(400).json({ error: "Invalid gameweek" });
+
+      // Find who scored the most points this GW
+      const predSnap = await db.collection("predictions").where("gameweek", "==", gw).get();
+      const totals = {};
+      predSnap.forEach(doc => {
+        const { userId, awardedPoints } = doc.data();
+        if (!userId) return;
+        totals[userId] = (totals[userId] || 0) + (awardedPoints || 0);
+      });
+
+      const [winnerUid] = Object.entries(totals).sort((a, b) => b[1] - a[1])[0] || [];
+      if (!winnerUid) return res.status(404).json({ error: "No predictions found" });
+
+      const winnerDoc = await db.collection("users").doc(winnerUid).get();
+      const winnerName = winnerDoc.data()?.fullName || "A player";
+      const winnerPts  = totals[winnerUid];
+
+      // Save to gameweekWinners collection
+      await db.collection("gameweekWinners").doc(`gw${gw}`).set({
+        userId: winnerUid, gameweek: gw, points: winnerPts,
+        fullName: winnerName, updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // Notify all users
+      const usersSnap = await db.collection("users").where("fcmToken", "!=", null).get();
+      const messaging = admin.messaging();
+      let sent = 0;
+      for (const userDoc of usersSnap.docs) {
+        const { fcmToken, pushNotificationsEnabled } = userDoc.data();
+        if (pushNotificationsEnabled === false || !fcmToken) continue;
+        try {
+          await messaging.send({
+            token: fcmToken,
+            notification: {
+              title: `⚡ GW${gw} Winner: ${winnerName}!`,
+              body: `${winnerName} topped GW${gw} with ${winnerPts} pts. See the leaderboard!`,
+            },
+            android: { priority: "high" }
+          });
+          sent++;
+        } catch (e) {
+          if (e.code === "messaging/registration-token-not-registered") {
+            await db.collection("users").doc(userDoc.id).update({ fcmToken: admin.firestore.FieldValue.delete() });
+          }
+        }
+      }
+      return res.status(200).json({ winner: winnerName, points: winnerPts, notified: sent });
+    } catch (e) {
+      console.error("sendGwWinnerNotification error:", e);
+      return res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+});
+
+// ── Sharpshooter leaderboard (any authenticated user) ────────────────────────
+// GET — returns users ranked by correct-score count (awardedPoints >= 3)
+exports.getSharpshooterLeaderboard = functions.https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.replace("Bearer ", "").trim();
+      if (!idToken) return res.status(401).json({ error: "Missing auth token" });
+      await admin.auth().verifyIdToken(idToken);
+
+      // Count predictions with awardedPoints >= 3 per user
+      const predSnap = await db.collection("predictions")
+        .where("awardedPoints", ">=", 3).get();
+
+      const counts = {};
+      predSnap.forEach(doc => {
+        const uid = doc.data().userId;
+        if (uid) counts[uid] = (counts[uid] || 0) + 1;
+      });
+
+      const userIds = Object.keys(counts);
+      if (userIds.length === 0) return res.status(200).json({ entries: [] });
+
+      // Fetch user names + images in chunks of 30
+      const userMap = {};
+      for (let i = 0; i < userIds.length; i += 30) {
+        const chunk = userIds.slice(i, i + 30);
+        const uSnap = await db.collection("users")
+          .where(admin.firestore.FieldPath.documentId(), "in", chunk).get();
+        uSnap.forEach(d => {
+          userMap[d.id] = {
+            name: d.data().fullName || "Anonymous",
+            profileImageUrl: d.data().profileImageUrl || null,
+          };
+        });
+      }
+
+      const entries = userIds
+        .map(uid => ({
+          userId: uid,
+          name: userMap[uid]?.name || "Unknown",
+          profileImageUrl: userMap[uid]?.profileImageUrl || null,
+          correctScores: counts[uid],
+        }))
+        .sort((a, b) => b.correctScores - a.correctScores)
+        .slice(0, 100);
+
+      return res.status(200).json({ entries });
+    } catch (e) {
+      console.error("getSharpshooterLeaderboard error:", e);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+});
+
+// ── Custom push notification to all users ────────────────────────────────────
+exports.sendCustomNotification = functions.https.onRequest(async (req, res) => {
+  cors(req, res, async () => {
+    try {
+      await verifyAdmin(req);
+      const { title, body } = req.body || {};
+      if (!title || !body) return res.status(400).json({ error: "Missing title or body" });
+
+      const usersSnap = await db.collection("users").where("fcmToken", "!=", null).get();
+      const messaging = admin.messaging();
+      let sent = 0;
+      for (const userDoc of usersSnap.docs) {
+        const { fcmToken, pushNotificationsEnabled } = userDoc.data();
+        if (pushNotificationsEnabled === false || !fcmToken) continue;
+        try {
+          await messaging.send({ token: fcmToken, notification: { title, body }, android: { priority: "high" } });
+          sent++;
+        } catch (e) {
+          if (e.code === "messaging/registration-token-not-registered") {
+            await db.collection("users").doc(userDoc.id).update({ fcmToken: admin.firestore.FieldValue.delete() });
+          }
+        }
+      }
+      return res.status(200).json({ message: `Sent to ${sent} users.` });
+    } catch (e) {
+      return res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+});
+
+// ── Debug: show all fixtures with homeTeamGoals != -1, or matching team name ─
+exports.debugFixtures = functions.https.onRequest(async (req, res) => {
+  try {
+    await verifyAdmin(req);
+    const team   = (req.query.team || "").toLowerCase();
+    const gw     = req.query.gw  ? parseInt(req.query.gw) : null;
+    const docId  = req.query.id  || null;
+
+    // Single-doc raw dump (for diagnosing field type issues)
+    if (docId) {
+      const doc = await db.collection("fixtures").doc(docId).get();
+      if (!doc.exists) return res.status(404).json({ error: "not found" });
+      const raw = doc.data();
+      const typed = {};
+      for (const [k, v] of Object.entries(raw)) {
+        typed[k] = { value: v instanceof admin.firestore.Timestamp ? v.toDate() : v, type: v?.constructor?.name ?? typeof v };
+      }
+      return res.status(200).json({ id: doc.id, fields: typed });
+    }
+
+    const snap = await db.collection("fixtures").get();
+    const results = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(d => {
+        if (gw !== null) return d.gameweek === gw;
+        if (team)        return (d.homeTeam||"").toLowerCase().includes(team) || (d.awayTeam||"").toLowerCase().includes(team);
+        return d.homeTeamGoals !== -1 || d.awayTeamGoals !== -1;
+      })
+      .map(d => ({
+        id: d.id, homeTeam: d.homeTeam, awayTeam: d.awayTeam,
+        homeTeamGoals: d.homeTeamGoals, awayTeamGoals: d.awayTeamGoals,
+        gameweek: d.gameweek, deadline: d.deadline?.toDate?.() || d.deadline,
+        hasDeadline: !!d.deadline
+      }));
+    return res.status(200).json({ count: results.length, fixtures: results });
+  } catch (e) {
+    return res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── One-time: delete fixtures with gameweek 101-104 ──────────────────────────
+exports.deleteOldGameweeks = functions
+  .runWith({ timeoutSeconds: 300, memory: "256MB" })
+  .https.onRequest(async (req, res) => {
+  try {
+    await verifyAdmin(req);
+    const OLD_GWS = [101, 102, 103, 104];
+    let totalDeleted = 0;
+    for (const gw of OLD_GWS) {
+      const snap = await db.collection("fixtures").where("gameweek", "==", gw).get();
+      if (snap.empty) { console.log(`GW${gw}: 0 docs`); continue; }
+      const batch = db.batch();
+      snap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      console.log(`GW${gw}: deleted ${snap.size}`);
+      totalDeleted += snap.size;
+    }
+    return res.status(200).json({ ok: true, deleted: totalDeleted });
+  } catch (e) {
+    return res.status(e.status || 500).json({ error: e.message });
+  }
+});

@@ -99,7 +99,75 @@ fun AdminPanelSection(
     var createTime     by remember { mutableStateOf("") }   // "HH:mm"
     var createDateErr  by remember { mutableStateOf(false) }
 
-    // ── Reset confirm dialog ──────────────────────────────────────────────────
+    // ── Single-user token reset state ────────────────────────────────────────
+    var userMgmtExpanded      by remember { mutableStateOf(false) }
+    var singleUserName        by remember { mutableStateOf("") }
+    var showSingleUserConfirm by remember { mutableStateOf(false) }
+
+    if (showSingleUserConfirm) {
+        AlertDialog(
+            onDismissRequest = { showSingleUserConfirm = false },
+            containerColor   = Color(0xFF1A1A1A),
+            titleContentColor = Color(0xFF4CAF50),
+            textContentColor  = Color(0xFFCCCCCC),
+            title = { Text("Reset User Tokens?", fontFamily = ironManFont) },
+            text  = {
+                Text(
+                    "Reset wildcard, captain & double-down for \"${singleUserName.trim()}\".",
+                    fontSize = 13.sp, lineHeight = 19.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSingleUserConfirm = false
+                    adminViewModel.resetUserTokensByName(singleUserName.trim())
+                    singleUserName = ""
+                }) {
+                    Text("RESET", color = Color(0xFF4CAF50), fontFamily = ironManFont)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSingleUserConfirm = false }) {
+                    Text("Cancel", color = Dim, fontFamily = ironManFont)
+                }
+            }
+        )
+    }
+
+    // ── Token reset confirm dialog ────────────────────────────────────────────
+    var showTokenResetConfirm by remember { mutableStateOf(false) }
+
+    if (showTokenResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showTokenResetConfirm = false },
+            containerColor   = Color(0xFF1A1A1A),
+            titleContentColor = Gold,
+            textContentColor  = Color(0xFFCCCCCC),
+            title = { Text("Reset Tokens?", fontFamily = ironManFont) },
+            text  = {
+                Text(
+                    "This will set wildcardAvailable, captainAvailable and " +
+                    "doubleDownAvailable back to true for every user in the app.",
+                    fontSize = 13.sp, lineHeight = 19.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showTokenResetConfirm = false
+                    adminViewModel.resetAllTokens()
+                }) {
+                    Text("RESET TOKENS", color = Gold, fontFamily = ironManFont)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTokenResetConfirm = false }) {
+                    Text("Cancel", color = Dim, fontFamily = ironManFont)
+                }
+            }
+        )
+    }
+
+    // ── Season reset confirm dialog ───────────────────────────────────────────
     var showResetConfirm by remember { mutableStateOf(false) }
 
     if (showResetConfirm) {
@@ -370,6 +438,32 @@ fun AdminPanelSection(
                 }
             }
 
+            // ── 3b. User Management ───────────────────────────────────────────
+            SectionDivider()
+            SectionHeader(
+                title       = "USER MANAGEMENT",
+                expanded    = userMgmtExpanded,
+                ironManFont = ironManFont
+            ) { userMgmtExpanded = !userMgmtExpanded }
+
+            AnimatedVisibility(visible = userMgmtExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AdminTextField(
+                        value    = singleUserName,
+                        onChange = { singleUserName = it },
+                        label    = "Player Name",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    AdminChip(
+                        label   = "Reset Tokens for Player",
+                        bg      = Color(0xFF1A2A1A),
+                        fg      = Color(0xFF4CAF50),
+                        font    = ironManFont,
+                        enabled = singleUserName.isNotBlank() && !isBusy
+                    ) { showSingleUserConfirm = true }
+                }
+            }
+
             // ── 4. Controls ───────────────────────────────────────────────────
             SectionDivider()
             Text("CONTROLS", color = Dim, fontFamily = ironManFont, fontSize = 11.sp)
@@ -390,6 +484,52 @@ fun AdminPanelSection(
                         color = Color.Black, fontFamily = ironManFont, fontSize = 12.sp
                     )
                 }
+            }
+
+            // GW winner notification
+            var notifyGwInput by remember { mutableStateOf(currentGameweek?.toString() ?: "") }
+            LaunchedEffect(currentGameweek) {
+                if (notifyGwInput.isEmpty() && currentGameweek != null) notifyGwInput = currentGameweek.toString()
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AdminTextField(
+                    value    = notifyGwInput,
+                    onChange = { notifyGwInput = it },
+                    label    = "GW",
+                    modifier = Modifier.width(80.dp),
+                    keyboardType = KeyboardType.Number
+                )
+                Button(
+                    onClick  = { notifyGwInput.toIntOrNull()?.let { adminViewModel.sendGwWinnerNotification(it) } },
+                    enabled  = !isBusy && notifyGwInput.toIntOrNull() != null,
+                    colors   = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1A1A2A),
+                        disabledContainerColor = Color(0xFF111122)
+                    ),
+                    border   = BorderStroke(1.dp, Color(0xFF4B9EFF)),
+                    shape    = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("🔔  Send GW Notification", color = Color(0xFF4B9EFF), fontFamily = ironManFont, fontSize = 12.sp)
+                }
+            }
+
+            Button(
+                onClick  = { showTokenResetConfirm = true },
+                enabled  = !isBusy,
+                colors   = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF1A2A1A),
+                    disabledContainerColor = Color(0xFF111A11)
+                ),
+                border   = BorderStroke(1.dp, Color(0xFF4CAF50)),
+                shape    = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("🔑  Reset All Tokens", color = Color(0xFF4CAF50), fontFamily = ironManFont, fontSize = 12.sp)
             }
 
             Button(
